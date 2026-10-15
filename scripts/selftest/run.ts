@@ -79,6 +79,11 @@ const mkConfig = (file: string, overrides: Record<string, any> = {}) => {
 const cfgPath = mkConfig(path.join(scratch, "foreman.selftest.json"));
 const badCfgPath = mkConfig(path.join(scratch, "foreman.selftest.bad.json"), { strongSolo: { requiredHelpFlags: ["--subagent-max-depth"] } });
 const rogueCfgPath = mkConfig(path.join(scratch, "foreman.selftest.rogue.json"), { harnessDir: "harness-rogue" });
+// A profile with an OpenRouter key saved in auth.json (pasted into Pi, or /login): Pi would bill it, not the env key.
+fs.mkdirSync(path.join(piCfg, "solo-savedkey"), { recursive: true });
+fs.writeFileSync(path.join(piCfg, "solo-savedkey", "AGENTS.md"), "Implement the user's request completely.\n");
+writeJson(path.join(piCfg, "solo-savedkey", "auth.json"), { openrouter: { type: "api_key", key: "sk-or-v1-saved-in-profile" } });
+const savedKeyCfgPath = mkConfig(path.join(scratch, "foreman.selftest.savedkey.json"), { strongSolo: { piConfigDir: path.join(piCfg, "solo-savedkey") } });
 const pidFile = path.join(scratch, "grandchild.pid");
 
 const common = (cfg: string) => ["--config", cfg, "--task", TASK, "--task-dir", path.join(here, "task"), "--runs-dir", runsRoot, "--results-dir", resultsRoot, "--workdir", workdir, "--dotenv", path.join(scratch, "no.env")];
@@ -157,6 +162,11 @@ try {
   check(pf.status === 2 && /does not list --subagent-max-depth/.test(pf.stderr), "preflight: missing extension flag in `pi --help` -> abort before any run");
   const rg = run("compare.ts", [...common(rogueCfgPath), "--modes", "harness", "--runs", "1", "--no-key-cost", "--dry-run"], envNoKey);
   check(rg.status === 2 && /not managed by the foreman package/.test(rg.stderr), "preflight: a hand-written worker file in an --orchestrate profile's agents/ -> abort (it would replace a package worker's model)");
+  const sk = run("compare.ts", [...common(savedKeyCfgPath), "--modes", "strong-solo", "--runs", "1", "--no-key-cost", "--dry-run"], { ...envNoKey, OPENROUTER_API_KEY: "sk-or-v1-the-measured-key" });
+  check(sk.status === 2 && /holds an OpenRouter credential other than OPENROUTER_API_KEY/.test(sk.stderr), "preflight: a different OpenRouter key saved in the profile's auth.json -> abort (Pi would bill it, not the measured key)");
+  const skSame = run("compare.ts", [...common(savedKeyCfgPath), "--modes", "strong-solo", "--runs", "1", "--no-key-cost", "--dry-run"], { ...envNoKey, OPENROUTER_API_KEY: "sk-or-v1-saved-in-profile" });
+  check(skSame.status === 0, `preflight: the same key saved and in OPENROUTER_API_KEY -> allowed (got exit ${skSame.status})`);
+  if (skSame.status !== 0) show(skSame.stdout + skSame.stderr);
 
   // 2b. Pi >= 0.75 on a Node < 22.19 must abort (only testable when the runner's own Node is older).
   const [maj, min] = process.versions.node.split(".").map(Number);

@@ -30,6 +30,13 @@ Other forms:
 
 Models: whatever `/v1/models` lists (`auto`, `auto:<profile>`, catalog ids), plus `auto:smart` and `auto:fast`. The router accepts those two but doesn't list them. All are registered as zero-cost, text-only and non-reasoning, with max output `min(8192, context)`, matching FreeLLMAPI's own `setup-pi` generator.
 
+## Your OpenRouter key stays out of it
+
+- **The lead:** Pi sends each provider only its own key. A `freellmapi/…` session talks to FreeLLMAPI with the FreeLLMAPI key, and your OpenRouter key never goes there.
+- **Workers:** while the session's model is a `freellmapi/…` model, every `subagent` call is moved onto that same model before it runs. That includes Foreman's workers, which are otherwise pinned to `openrouter/…`. Nothing is billed to OpenRouter. Pi tells you once per session, and Foreman's `/team` shows the switch. A call that already names a `freellmapi/…` model is left alone.
+- How it works: a `tool_call` handler sets each call's `model` field; `@mjakl/pi-subagent` lets a per-call model override the agent file's. Worker processes share the agent dir, so they load this extension and its saved connection too.
+- **Pi may still contact OpenRouter in the background,** for example to refresh its OpenRouter model list at startup when it has a key. That call reads the model list and is not a model request.
+
 ## Troubleshooting
 
 - **"Error: No API key found for the selected model" right after typing `/login-with-freellm`:** the extension isn't loaded, so Pi sent your text to the model as a chat message. Pi's startup header lists loaded extensions under `[Extensions]`; if that section is missing, start Pi with `-e <repo>/extensions/freellmapi` or `pi install` it. In PowerShell, run the launcher as `& "<path>\pi.cmd" ...`. In cmd.exe, drop the `&`.
@@ -51,3 +58,11 @@ node test/rpc-login-test.mjs <pi-node> <pi-cli>              # clicks through th
 ```
 
 `rpc-login-test.mjs` covers three scenarios: password login → separate Pi key → model switch; pasted unified key with a non-default model; wrong password (error shown, nothing saved).
+
+```bash
+node test/rpc-workers-test.mjs <pi-node> <pi-cli>            # self-contained; needs no mock running
+```
+
+`rpc-workers-test.mjs` loads the Foreman package and this extension. One local server stands in for both FreeLLMAPI and OpenRouter, and the lead answers with a real `subagent` call.
+- **Lead on FreeLLMAPI:** the worker process's request reaches FreeLLMAPI as `auto:smart` with the FreeLLMAPI key, and zero requests reach OpenRouter.
+- **Control run, lead on OpenRouter:** the worker goes to OpenRouter as `minimax/minimax-m3`, so the test would catch a leak.

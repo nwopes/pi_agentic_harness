@@ -6,12 +6,14 @@
 //
 // The connection is saved to <agentDir>/freellmapi.json (honours PI_CODING_AGENT_DIR) and re-registered on
 // every start, so subagent workers that share the agent dir can use `freellmapi/<model>` too.
+// While the session's model is a FreeLLMAPI model, subagent workers run on that model as well, so nothing goes to
+// OpenRouter (Foreman's workers are otherwise pinned to openrouter/… models).
 // FreeLLMAPI API facts (routes, key formats, ports) are from its source; see NOTES.md.
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { getAgentDir, readStoredCredential, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, readStoredCredential, type ExtensionAPI, type ExtensionCommandContext, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER = "freellmapi";
 // Desktop app, the port this repo recommends for npm installs (3001 is the habit-tracker API), FreeLLMAPI's default.
@@ -247,6 +249,31 @@ export default function freellmapi(pi: ExtensionAPI) {
       savedAt: "env",
     });
   }
+
+  // Keep workers on FreeLLMAPI too. A subagent call's `model` overrides the agent file's model (@mjakl/pi-subagent),
+  // and Pi lets a tool_call handler change a call's input before the tool runs.
+  const workerModel = (ctx: ExtensionContext) => (ctx.model?.provider === PROVIDER ? `${PROVIDER}/${ctx.model.id}` : undefined);
+  let toldAboutWorkers = false;
+  pi.on("tool_call", (event, ctx) => {
+    const target = workerModel(ctx);
+    const calls = (event.input as { calls?: unknown } | undefined)?.calls;
+    if (event.toolName !== "subagent" || !target || !Array.isArray(calls)) return;
+    for (const call of calls) {
+      if (call && typeof call === "object" && !String((call as { model?: unknown }).model ?? "").startsWith(`${PROVIDER}/`)) {
+        (call as { model?: string }).model = target;
+      }
+    }
+    if (!toldAboutWorkers && ctx.hasUI) ctx.ui.notify(`Workers run on ${target} too, so nothing goes to OpenRouter.`, "info");
+    toldAboutWorkers = true;
+  });
+  // Foreman's /team asks which model the workers really use (foreman/orchestrate.ts, WORKER_MODELS_EVENT).
+  pi.events.on("foreman:worker-models", (data) => {
+    const query = data as { lead?: string; redirect?: { model?: string; by?: string } };
+    if (query?.redirect && query.lead?.startsWith(`${PROVIDER}/`)) {
+      query.redirect.model = query.lead;
+      query.redirect.by = "FreeLLMAPI keeps workers on the lead's model";
+    }
+  });
 
   pi.registerCommand("login-with-freellm", {
     description: "Connect Pi to your FreeLLMAPI router (free-tier models) and switch to one of its models",

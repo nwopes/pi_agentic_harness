@@ -425,6 +425,20 @@ async function main() {
         }
       }
     }
+    // Pi prefers a key saved in <agentDir>/auth.json (/login openrouter, or one pasted into Pi with the Foreman package)
+    // over OPENROUTER_API_KEY. A different saved key would be billed while the runner measures the env key's usage.
+    const authFile = path.join(dir, "auth.json");
+    if (exists(authFile)) {
+      let stored: { type?: string; key?: string } | undefined;
+      try {
+        stored = JSON.parse(fs.readFileSync(authFile, "utf8"))?.openrouter;
+      } catch {
+        errors.push(`mode ${m}: ${authFile} is not valid JSON`);
+      }
+      if (stored && !(stored.type === "api_key" && stored.key === process.env.OPENROUTER_API_KEY?.trim())) {
+        errors.push(`mode ${m}: ${authFile} holds an OpenRouter credential other than OPENROUTER_API_KEY; Pi would bill it instead of the key the runner measures. Remove it (/logout in that profile, or delete the "openrouter" entry).`);
+      }
+    }
     if (piOk && mc.requiredHelpFlags?.length) {
       const h = piHelpHasFlags(piCli, piNode, os.tmpdir(), dir, cfg.pi.env, mc.requiredHelpFlags);
       if (!h.ok) errors.push(`mode ${m}: \`pi --help\` does not list ${h.missing.join(", ")}; the extension did not load (with PI_OFFLINE=1 a missing package is skipped silently)${h.error ? `: ${h.error}` : ""}`);

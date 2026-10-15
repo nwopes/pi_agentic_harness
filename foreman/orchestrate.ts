@@ -2,15 +2,26 @@
 //
 //   /orchestrate [on|off]   toggle lead mode in this session (no argument flips it); persisted in the session
 //   --orchestrate           start in lead mode, e.g. for headless `--mode json` runs
-//   /team                   the lead's model and each worker's model
+//   /team                   the lead's model, each worker's model, and where the OpenRouter key comes from
 //
-// package.json "pi.extensions" loads this file, then @mjakl/pi-subagent, then prompt.ts. This file must come first:
-// it caps the delegation depth before pi-subagent reads it and copies the worker definitions before pi-subagent
-// discovers agents at session_start.
+// package.json "pi.extensions" loads this file, then @mjakl/pi-subagent, then prompt.ts and keys.ts. This file must
+// come first: it caps the delegation depth before pi-subagent reads it and copies the worker definitions before
+// pi-subagent discovers agents at session_start.
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { maskKey, openRouterKey } from "./keys.ts";
 import { isWorker, sharedState, STATE_ENTRY, syncWorkers, team } from "./shared.ts";
 
 const TOOL = "subagent";
+/**
+ * Lets another extension report that it runs the workers on a different model than their agent files say. Listeners
+ * receive { lead, redirect: {} } and may set redirect.model and redirect.by without awaiting anything (pi.events calls
+ * them synchronously up to their first await). extensions/freellmapi does this while the lead is on FreeLLMAPI.
+ */
+export const WORKER_MODELS_EVENT = "foreman:worker-models";
+interface WorkerModelsQuery {
+  lead: string | undefined;
+  redirect: { model?: string; by?: string };
+}
 
 export default function orchestrate(pi: ExtensionAPI) {
   // Registered in workers too: pi-subagent forwards unknown parent flags to its children, and Pi exits on an
@@ -52,14 +63,30 @@ export default function orchestrate(pi: ExtensionAPI) {
   };
 
   const describe = (ctx: ExtensionContext) => {
-    const lead = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "(no model selected)";
-    const rows = team(getAgentDir()).map(
-      (w) => `  ${w.name.padEnd(9)} ${w.model}${w.source === "package" ? "" : `   (your override: ${w.source})`}`,
+    const lead = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+    const query: WorkerModelsQuery = { lead, redirect: {} };
+    pi.events.emit(WORKER_MODELS_EVENT, query);
+    const { model: redirected, by } = query.redirect;
+    const workers = team(getAgentDir());
+    const rows = workers.map((w) =>
+      redirected
+        ? `  ${w.name.padEnd(9)} ${redirected}   (${by ?? "another extension"}: instead of ${w.model})`
+        : `  ${w.name.padEnd(9)} ${w.model}${w.source === "package" ? "" : `   (your override: ${w.source})`}`,
     );
+    const usesOpenRouter = (lead?.startsWith("openrouter/") ?? false) || (!redirected && workers.some((w) => w.model.startsWith("openrouter/")));
+    const key = openRouterKey();
+    const keyLine = !usesOpenRouter
+      ? "OpenRouter key: not used by this team"
+      : key.source === "saved"
+        ? `OpenRouter key: saved, ${maskKey(key.key!)}${key.envAlsoSet ? " (used instead of OPENROUTER_API_KEY)" : ""}`
+        : key.source === "env"
+          ? `OpenRouter key: from OPENROUTER_API_KEY, ${maskKey(key.key!)}`
+          : "OpenRouter key: none yet. Paste your key into Pi (just the key) to save it.";
     return [
       `Foreman team: lead mode ${state.on ? "ON" : "OFF"}`,
-      `  ${"lead".padEnd(9)} ${lead}   (this session's model${state.on ? "" : "; working alone"})`,
+      `  ${"lead".padEnd(9)} ${lead ?? "(no model selected)"}   (this session's model${state.on ? "" : "; working alone"})`,
       ...rows,
+      keyLine,
       state.on ? "Workers can't delegate further. Toggle with /orchestrate." : "Turn on with /orchestrate (or start Pi with --orchestrate).",
     ].join("\n");
   };

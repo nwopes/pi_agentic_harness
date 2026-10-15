@@ -14,12 +14,13 @@ Path shorthands used below:
 
 This **supersedes** the hand-built harness described further down ("Harness prompt layout", "Setup command", "Command lines"). Those sections are kept as the record of how Milestone 0 was first verified.
 
-- **What changed:** `pi-config/harness` used to hold `LEAD.md` + `agents/*.md` and needed `--append-system-prompt LEAD.md --subagent-max-depth 1` on every launch. Now the repo root is one Pi package. Its files are in `foreman/`: `orchestrate.ts`, `prompt.ts`, `shared.ts`, `LEAD.md` and `agents/*.md`. The `harness` profiles load it via `settings.json` `"packages": ["../.."]`, and lead mode is `--orchestrate` (headless) or `/orchestrate` (interactive). The demo and the measured runs therefore share one setup.
+- **What changed:** `pi-config/harness` used to hold `LEAD.md` + `agents/*.md` and needed `--append-system-prompt LEAD.md --subagent-max-depth 1` on every launch. Now the repo root is one Pi package. Its files are in `foreman/`: `orchestrate.ts`, `prompt.ts`, `keys.ts`, `shared.ts`, `LEAD.md` and `agents/*.md`. The `harness` profiles load it via `settings.json` `"packages": ["../.."]`, and lead mode is `--orchestrate` (headless) or `/orchestrate` (interactive). The demo and the measured runs therefore share one setup.
 - **Why the repo root is the package:** Pi's git source cannot point at a subdirectory. The parser yields only `{repo, host, path, ref}`, and the clone root is the package root (`<pi>/dist/core/package-manager.js:1566-1573,1804`). So `package.json` carries the `pi` manifest next to the runner scripts.
 - **Load order** (`package.json` `pi.extensions`, which Pi keeps in order: `package-manager.js:1962-1970`):
   1. `foreman/orchestrate.ts`: registers `--orchestrate`, `/orchestrate`, `/team`; sets `PI_SUBAGENT_MAX_DEPTH=1` (`??=`, so an explicit value wins) before pi-subagent's factory reads it (`<sub>/index.ts:386-387,715`); copies the workers in at `session_start`; toggles the `subagent` tool with `pi.setActiveTools`.
   2. `./node_modules/@mjakl/pi-subagent`: Pi reads that package's own `pi.extensions` (`package-manager.js:381-405`).
   3. `foreman/prompt.ts`: `before_agent_start`. When lead mode is on, it adds `LEAD.md` as a `<lead_mode>` section. If pi-subagent already replaced the whole prompt string (it returns `{systemPrompt: event.systemPrompt + list}`, `<sub>/index.ts:772-786`), the section is appended to that string instead. When lead mode is off, it removes pi-subagent's `## Available Subagents` block, which pi-subagent injects even when its tool is inactive.
+  4. `foreman/keys.ts` (added later the same day): an `input` handler that saves a pasted OpenRouter key and never forwards it to a model. It adds no tools and does not touch the prompt; see "OpenRouter key pasted into Pi" below.
 - **Dependency, not vendored.**
   - Pi docs: "Other Pi packages used as dependencies must be included in the published tarball and referenced through their `node_modules` resource paths" (`<pi>/docs/packages.md:90`).
   - Pi installs a package's dependencies for npm and git sources: git runs `npm install --omit=dev --legacy-peer-deps` in the clone (`package-manager.js:1495-1496,1570-1573`). Local paths are not installed for you (`packages.md:88`), hence `npm ci`.
@@ -527,14 +528,43 @@ Runner notes, mapped to `foreman.config.json`:
   - Ports: npm/Docker default to `PORT` 3001. **The desktop app uses 31415**, or the next free port, saved in `%APPDATA%/FreeLLMAPI/config.json`. The desktop account is a hidden `desktop@localhost` user with a random password, so password login can't work there; the tray's *Copy API key* is the route.
 - Pi facts, read from `<pi>/dist/core/extensions/types.d.ts` and the docs:
   - `pi.registerCommand`, `ctx.ui.select/confirm/input/notify`, `pi.registerProvider` (callable at runtime; takes effect immediately), `pi.unregisterProvider`, `pi.setModel`, `ctx.modelRegistry.find`, and `getAgentDir()`/`readStoredCredential()` exported from the package root.
-  - **Pi has no masked input, and no public API for extensions to write `auth.json`.** So the connection is saved to `<agentDir>/freellmapi.json` (gitignored) and passed as `apiKey`, escaped with `$$`/`$!` because Pi interpolates `$NAME` and a leading `!`.
+  - **Pi has no masked input.** At the time I also found no public API for extensions to write `auth.json`, so the connection is saved to `<agentDir>/freellmapi.json` (gitignored) and passed as `apiKey`, escaped with `$$`/`$!` because Pi interpolates `$NAME` and a leading `!`. *Correction (later the same day):* `ModelRuntime` is exported from the package root, and its `login()` does write `auth.json`. See "OpenRouter key pasted into Pi" below.
   - A provider registered with `apiKey` also appears in the built-in `/login`, and a key stored there takes precedence. The command warns when they differ.
-  - Non-interactive modes exit before running a command if no model is usable (`<pi>/dist/main.js:755`). Interactive mode starts anyway.
+  - Non-interactive modes exit before running a command if no model is usable (`<pi>/dist/main.js:755`). Interactive mode starts anyway. *Seen later:* RPC mode with `--model openrouter/…` and no OpenRouter key at all did start and run commands (`foreman/test/rpc-keys-test.mjs`). The exit may apply only when no model is named; I have not checked which.
 - Verified offline against `extensions/freellmapi/test/mock-freellmapi.mjs` (API shapes copied from FreeLLMAPI's source):
   - `test/rpc-login-test.mjs` drives the interactive flow over Pi's RPC mode, 3/3 scenarios passing: password login → separate `sk-cp-` key → model switch; pasted unified key with a non-default model; wrong password reported and nothing saved.
   - Print mode: login with args; a real streamed chat turn after a fresh start using only the saved connection (no OpenRouter key); `status`; `logout`; the env-only path; a wrong key (401 message); and no server at the URL.
   - **Not yet tested against a real FreeLLMAPI install.**
 - Testing pitfall: Git Bash's MSYS path conversion turns a `-p "/login-with-freellm status"` argument into a Windows path, so Pi sends it to the model as a chat message. Set `MSYS_NO_PATHCONV=1`, and then pass Pi's paths as `C:/...`, not `/c/...`.
+
+## OpenRouter key pasted into Pi, and FreeLLMAPI keeping workers off OpenRouter (added 2026-10-15, at the user's request)
+
+The user asked for an easy way to give Pi the OpenRouter key, and for FreeLLMAPI use never to touch it.
+
+- **Pi already had a way: `/login openrouter`.** Per `<pi>/docs/providers.md` ("OpenRouter: Authenticate with `/login openrouter` or `OPENROUTER_API_KEY`"), it saves an `api_key` credential in `<agentDir>/auth.json`. Its key prompt is a plain TUI `Input` (`login-dialog.js`), so the key is visible while typed. I did not drive the `/login` TUI dialog itself; the tests below exercise the same runtime call.
+- **`foreman/keys.ts` (in the package): paste the key into the prompt.**
+  - It uses the `input` event. `InputEventResult` `{action: "handled"}` (`types.d.ts`) stops the message, so a message containing `sk-or-v<n>-<32+ alnum>` never reaches any model.
+  - It then saves the key with `ModelRuntime.create({authPath: <agentDir>/auth.json, modelsPath: null, refreshOnCreate: false}).login("openrouter", "api_key", {prompt, notify})`. `ModelRuntime` is a public export. This is the call interactive `/login` makes (`interactive-mode.js` `loginProvider` → `session.modelRuntime.login`). Its only prompt is `{type: "secret", message: "Enter OpenRouter API key"}`, with no network check, and it writes `{"openrouter": {"type": "api_key", "key": …}}` under Pi's `proper-lockfile` lock.
+  - Before saving, it checks the key with `GET https://openrouter.ai/api/v1/key` (key info only, no model call). It refuses on 401 and saves anyway if OpenRouter can't be reached. With `PI_OFFLINE` it skips the check.
+  - Workers (`PI_SUBAGENT_DEPTH>0`) don't register the handler.
+- **Verified offline, `foreman/test/rpc-keys-test.mjs`, 11/11:**
+  - A pasted key causes 0 model requests and lands in `auth.json`.
+  - The next prompt in the same session already sends it, with no restart or env.
+  - A new Pi process on the same agent dir (what every worker is) sends it.
+  - A key inside a longer message is saved, and the message is not sent. Two keys: nothing sent, nothing saved.
+  - The full key never appears in Pi's output; `/team` shows `sk-or-v1-xxx…xxxx`.
+  - **Precedence: a saved key beats `OPENROUTER_API_KEY`.** With both set, Pi sent the saved one.
+- **Wire detail learned:** Pi's OpenRouter provider sends `anthropic/*` models in Anthropic Messages format (`<baseUrl>/v1/messages`, key in `x-api-key`). Other models (e.g. `minimax/minimax-m3`) go to `<baseUrl>/chat/completions` with `Authorization: Bearer`. A stand-in must serve both.
+- **Runner guard (measurement honesty):** because a saved key wins, `scripts/compare.ts` preflight now refuses a mode whose profile `auth.json` holds an OpenRouter credential other than `OPENROUTER_API_KEY`. Otherwise Pi would bill one key while the runner measures the other. Selftest covers both outcomes: a different key aborts, the same key is allowed.
+- **FreeLLMAPI keeps workers off OpenRouter (`extensions/freellmapi`):**
+  - The lead never sends the OpenRouter key to FreeLLMAPI: Pi resolves auth per provider.
+  - Workers: while `ctx.model.provider === "freellmapi"`, a `tool_call` handler sets every `subagent` call's `model` to `freellmapi/<lead model id>`. Pi's docs say "`tool_call` can mutate input or block execution", and `ToolCallEventResult` says "To modify arguments, mutate `event.input` in place". `@mjakl/pi-subagent`'s per-call `model` overrides the agent file (`contract.ts`, `runner.ts`).
+  - `/team` learns about the switch through `pi.events` channel `foreman:worker-models`. Pi's event bus is a Node `EventEmitter`, so a non-awaiting listener runs synchronously inside `emit()` (`<pi>/dist/core/event-bus.js`).
+- **Verified offline, `extensions/freellmapi/test/rpc-workers-test.mjs`, 8/8:**
+  - Lead on `freellmapi/auto:smart` with `--orchestrate`; the stand-in answers with a real `subagent` call. The spawned worker process sent `model=auto:smart` to FreeLLMAPI with the FreeLLMAPI key, and **zero requests reached OpenRouter**, though `OPENROUTER_API_KEY` was set.
+  - Control run, lead on OpenRouter: the worker went to OpenRouter as `minimax/minimax-m3`, so the test does see such a request.
+  - The worker got the `freellmapi` provider by inheriting `PI_CODING_AGENT_DIR`, so it loads the same packages and `freellmapi.json`.
+- **Not verified:** a real OpenRouter key through the paste flow (the validation call to `/api/v1/key` was not run live), the interactive TUI (only RPC), and a real FreeLLMAPI server.
 
 ## Pending live verification (needs `OPENROUTER_API_KEY`)
 

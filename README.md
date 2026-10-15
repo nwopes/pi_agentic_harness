@@ -21,7 +21,8 @@ Cheap models doing frontier-quality work. A strong **lead** model plans in `BOAR
 |---|---|
 | `/orchestrate [on\|off]` | Toggles lead mode in the current session (no argument flips it). **On:** the lead instructions ([`foreman/LEAD.md`](foreman/LEAD.md)) are added to the system prompt and the `subagent` tool is active. **Off:** both are gone, and Pi works alone. The setting is saved in the session, so resuming keeps it. |
 | `--orchestrate` | Starts Pi with lead mode on. Used for headless runs and by the compare runner, so the demo and the measured runs share one setup. |
-| `/team` | Shows the lead's model (this session's model) and each worker's model, and whether lead mode is on. |
+| `/team` | Shows the lead's model (this session's model), each worker's model, whether lead mode is on, and where the OpenRouter key comes from. |
+| **Paste your OpenRouter key** | Paste the key (`sk-or-v1-…`) into Pi's prompt and send it. Pi saves it and **never sends it to a model**: the message stops at the extension, whichever model is selected. The key goes into `<agentDir>/auth.json` through Pi's own credential store, the same place `/login openrouter` writes. The lead and every worker use it from then on, with no environment variable needed. Pi checks it with OpenRouter's free key-info call first and refuses one that OpenRouter rejects. `/logout` removes it. |
 
 Workers are defined in [`foreman/agents/`](foreman/agents/) (`frontend`, `backend`, `tests`, each with `model:` in its frontmatter). Delegation uses [`@mjakl/pi-subagent`](https://www.npmjs.com/package/@mjakl/pi-subagent) 3.1.0, declared as a normal npm dependency. Depth is capped at 1, so workers can't delegate further.
 
@@ -43,7 +44,7 @@ pi install https://github.com/nwopes/pi_agentic_harness              # same thin
 pi -e C:/path/to/pi_agentic_harness   # one session only, without installing
 ```
 
-`pi remove <same source>` uninstalls it. Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` is the package manifest. It loads exactly three files, in this order: `foreman/orchestrate.ts` → `@mjakl/pi-subagent` → `foreman/prompt.ts`. Nothing else in the repo (for example `extensions/freellmapi`) is loaded.
+`pi remove <same source>` uninstalls it. Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` is the package manifest. It loads exactly four files, in this order: `foreman/orchestrate.ts` → `@mjakl/pi-subagent` → `foreman/prompt.ts` → `foreman/keys.ts`. Nothing else in the repo (for example `extensions/freellmapi`) is loaded.
 
 ### Good to know
 
@@ -53,6 +54,7 @@ pi -e C:/path/to/pi_agentic_harness   # one session only, without installing
 - `--orchestrate=false` still turns lead mode **on**; leave the flag out instead.
 - **Windows:** if `pi install git:…` fails with `fetch-pack: invalid index-pack output`, the agent dir's path is too long for git; the 260-character limit applies while `core.longpaths` is off. Use a shorter agent dir or run `git config --global core.longpaths true`. The default `~/.pi/agent` is fine.
 - Pi's own footer and `/session` cost **exclude** worker spend (see NOTES.md).
+- **A saved key beats `OPENROUTER_API_KEY`.** Tested: with both present, Pi sends the saved one, and `/team` says so. The compare runner therefore refuses a profile whose `auth.json` holds a different OpenRouter key than the one it measures.
 
 ## Modes (Pi config profiles in `pi-config/`)
 
@@ -69,6 +71,8 @@ The `harness` profiles load the package with `"packages": ["../.."]` (the repo r
 ### Free models through FreeLLMAPI (optional, separate)
 
 [`extensions/freellmapi`](extensions/freellmapi/README.md) adds a `/login-with-freellm` command. It is a separate extension, not part of the Foreman package, and never used in the comparison.
+
+**On FreeLLMAPI, OpenRouter is not used.** Pi sends a provider's key only to that provider, so the lead never sends your OpenRouter key to FreeLLMAPI. With both installed, while the session's model is a `freellmapi/…` model, the extension also moves every worker call onto that same model. Foreman's workers are otherwise pinned to OpenRouter, so this keeps lead mode free. `/team` shows the switch. Tested offline: a real worker process went to FreeLLMAPI, and zero requests reached OpenRouter.
 
 ## Setup (Windows, Git Bash)
 
@@ -91,13 +95,15 @@ npm run compare -- --task habit-tracker --modes harness,strong-solo,cheap-solo -
 npm run report -- --task habit-tracker  # rebuild results/ from runs/ logs only
 bash demo-tasks/habit-tracker/grade.sh <workspace> <out.json>
 node foreman/test/rpc-orchestrate-test.mjs <pi-node> <pi-cli>   # package behaviour incl. resume (11 checks), offline, $0
+node foreman/test/rpc-keys-test.mjs <pi-node> <pi-cli>          # pasted OpenRouter key: saved, never sent (11 checks), offline
+node extensions/freellmapi/test/rpc-workers-test.mjs <pi-node> <pi-cli>   # FreeLLMAPI lead -> workers stay off OpenRouter (8 checks)
 ```
 
 ## Layout
 
 ```
 package.json    runner scripts AND the Pi package manifest ("pi" field, dependencies)
-foreman/        the Pi package: orchestrate.ts, prompt.ts, shared.ts, LEAD.md, agents/*.md, test/
+foreman/        the Pi package: orchestrate.ts, prompt.ts, keys.ts, shared.ts, LEAD.md, agents/*.md, test/
 pi-config/      Pi agent dirs, one per mode (settings.json, models.json, neutral AGENTS.md for solo)
 demo-tasks/     habit-tracker (SPEC.md, fixture/, hidden-tests/, grade.sh) and quick (live-demo task)
 scripts/        compare.ts, report.ts, screenshots.ts, lib/, selftest/

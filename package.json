@@ -11,7 +11,8 @@
     "extensions": [
       "./foreman/orchestrate.ts",
       "./node_modules/@mjakl/pi-subagent",
-      "./foreman/prompt.ts"
+      "./foreman/prompt.ts",
+      "./foreman/keys.ts"
     ]
   },
   "dependencies": {
