@@ -1,9 +1,9 @@
 # Foreman for Pi
 
-A [Pi](https://pi.dev) package that turns Pi into a small team. A strong **lead** model plans in `BOARD.md` and delegates to cheaper **worker** models (frontend, backend, tests) through OpenRouter, then checks their work itself.
+A [Pi](https://pi.dev) package that turns Pi into a small team. A strong **lead** model plans in `BOARD.md` and delegates to cheaper or free **worker** models (frontend, backend, tests), then checks their work itself. Workers can run on paid OpenRouter models, free OpenRouter models or [FreeLLMAPI](extensions/freellmapi/README.md). Workers on free models can split their task among sub-workers. A built-in website guide teaches workers to build a clean, modern site without consulting a big model.
 
 - **Verified Pi facts and design notes:** [`NOTES.md`](NOTES.md). Read this before changing a Pi flag or hook.
-- **Status:** delegation was verified live with a Haiku lead (`--orchestrate`): the backend ran on MiniMax M3 and the frontend on Kimi K2.7 Code, according to OpenRouter's generation records, for about half a cent. Everything else is covered by offline tests (`npm run check`). Not yet verified live: an Opus lead (it needs more OpenRouter credit) and the interactive TUI.
+- **Status:** delegation was verified live with a Haiku lead (`--orchestrate`): the backend ran on MiniMax M3 and the frontend on Kimi K2.7 Code, according to OpenRouter's generation records, for about half a cent. Everything else, including free workers, sub-workers and FreeLLMAPI routing, is covered by offline tests (`npm run check`). Not yet verified live: an Opus lead, free OpenRouter or FreeLLMAPI workers against the real services, and the interactive TUI.
 - The earlier MVP benchmark (compare runner, habit-tracker task with hidden tests, demo script, PRD) is preserved at git tag [`mvp-benchmark`](https://github.com/nwopes/pi_agentic_harness/tree/mvp-benchmark).
 
 ## What it adds to Pi
@@ -12,10 +12,31 @@ A [Pi](https://pi.dev) package that turns Pi into a small team. A strong **lead*
 |---|---|
 | `/orchestrate [on\|off]` | Toggles lead mode in the current session (no argument flips it). **On:** the lead instructions ([`foreman/LEAD.md`](foreman/LEAD.md)) are added to the system prompt and the `subagent` tool is active. **Off:** both are gone, and Pi works alone. The setting is saved in the session, so resuming keeps it. |
 | `--orchestrate` | Starts Pi with lead mode on, e.g. for headless `--mode json` runs. |
-| `/team` | Shows the lead's model (this session's model), each worker's model, whether lead mode is on, and where the OpenRouter key comes from. |
+| `/workers` | Chooses what the workers run on: `paid` (default), `free` or `freellm`; one worker's model; how deep free workers may delegate. See [Workers](#workers-paid-free-or-freellmapi) below. |
+| `/team` | Shows the lead's model (this session's model), each worker's model as `/workers` set it (and whether it's free), the sub-worker depth, and where the OpenRouter key comes from. |
+| **Website guide** | A Pi skill, [`foreman/skills/website`](foreman/skills/website/SKILL.md), that walks a worker through building a clean, modern site step by step: themes with fixed values, components, copy rules and a checker script. For website tasks the lead tells the UI workers to follow it, and the frontend worker's instructions name it too. |
 | **Paste your OpenRouter key** | Paste the key (`sk-or-v1-…`) into Pi's prompt and send it. Pi saves it and **never sends it to a model**: the message stops at the extension, whichever model is selected. The key goes into `<agentDir>/auth.json` through Pi's own credential store, the same place `/login openrouter` writes. The lead and every worker use it from then on, with no environment variable needed. Pi checks it with OpenRouter's key-info call first and refuses one that OpenRouter rejects. `/logout` removes it. |
 
-Workers are defined in [`foreman/agents/`](foreman/agents/) (`frontend`, `backend`, `tests`, each with `model:` in its frontmatter). Delegation uses [`@mjakl/pi-subagent`](https://www.npmjs.com/package/@mjakl/pi-subagent) 3.1.0, declared as a normal npm dependency. Depth is capped at 1, so workers can't delegate further.
+Workers are defined in [`foreman/agents/`](foreman/agents/) (`frontend`, `backend`, `tests`; the `model:` there is the paid default). Delegation uses [`@mjakl/pi-subagent`](https://www.npmjs.com/package/@mjakl/pi-subagent) 3.1.0, declared as a normal npm dependency.
+
+## Workers: paid, free, or FreeLLMAPI
+
+| Command | Workers run on | Cost |
+|---|---|---|
+| `/workers paid` (default) | the pinned models in `foreman/agents/` (Kimi K2.7 Code, MiniMax M3, Haiku 5.5) via OpenRouter | paid |
+| `/workers free` | free OpenRouter models ([`foreman/workers.json`](foreman/workers.json): north-mini-code, laguna-s-2.1, gemma-4-31b; all `:free`) | $0, rate-limited by OpenRouter |
+| `/workers freellm` | FreeLLMAPI `auto:smart` (tests: `auto:fast`); needs `/login-with-freellm` | $0 |
+
+- **`/workers` on its own** opens a list: a preset, *Change one worker's model…*, or *Sub-worker depth…*.
+- **One worker's model:** `/workers frontend openrouter/<model>:free` changes just that worker within the current preset, and `/workers frontend default` undoes it. The free preset accepts only $0 models, and freellm only `freellmapi/…` ones. To customise paid models, `/workers paid` first.
+- **Sub-workers (multilevel):** a worker whose own model is free may split its task among sub-workers, which run on that same free model, so nesting never adds cost. Paid workers never delegate.
+  - `/workers depth 1` turns sub-workers off; `2` (the default) allows them; `3` lets sub-workers use their own.
+  - Lowering the depth applies to the next worker. Raising it above what Pi started with needs a restart, because pi-subagent fixes its ceiling at startup.
+- **Never a silent fallback to paid models.** If a worker's model isn't available, delegation stops and the lead is told why. That happens when FreeLLMAPI isn't connected, there's no OpenRouter key, or a free model was retired.
+- **A FreeLLMAPI lead keeps paid workers off:** with the `paid` preset and a `freellmapi/…` lead, the workers follow the lead, so nothing reaches OpenRouter.
+- **The setting is saved** in `<agentDir>/foreman-workers.json` and applies from the next delegation. `/team` always shows the effective models.
+- **Free model churn:** OpenRouter's free list changes often. The defaults were picked on 2026-10-16 from what was free and could call tools, judged by name and specs only. `/team` flags a default that disappears as NOT AVAILABLE; pick another with `/workers <worker> <model>`.
+- **Rate limits:** I believe free OpenRouter models are limited to roughly 20 requests a minute plus a daily cap that depends on whether you've bought credits. Lead mode with sub-workers makes many requests, so check OpenRouter's current limits.
 
 ## Install
 
@@ -33,7 +54,7 @@ pi update git:github.com/nwopes/pi_agentic_harness   # pull the latest (plain `p
 pi remove git:github.com/nwopes/pi_agentic_harness
 ```
 
-Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` is the package manifest. It loads exactly four files, in this order: `foreman/orchestrate.ts` → `@mjakl/pi-subagent` → `foreman/prompt.ts` → `foreman/keys.ts`. `extensions/freellmapi` is not part of it.
+Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` is the package manifest. It loads five extension files, in this order: `foreman/orchestrate.ts` → `@mjakl/pi-subagent` → `foreman/prompt.ts` → `foreman/keys.ts` → `foreman/workers.ts`. It also loads one skill directory, `foreman/skills`. `extensions/freellmapi` is not part of it.
 
 ### Good to know
 
@@ -50,12 +71,10 @@ Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` 
 
 [`extensions/freellmapi`](extensions/freellmapi/README.md) adds `/login-with-freellm`, which connects Pi to a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) router. Install it on its own: `pi install <repo>/extensions/freellmapi`.
 
-**`/freellm` sets how much work goes to FreeLLMAPI.** The setting is saved:
-- `off`: everything uses its own model.
-- `workers`: your chosen lead, e.g. Opus on OpenRouter, orchestrates, and every worker runs free on FreeLLMAPI.
-- `all`: free only, lead included.
+- **Workers on FreeLLMAPI:** `/workers freellm`, while your lead stays on the model you picked.
+- **Everything on FreeLLMAPI:** `/freellm all`. It puts the lead on FreeLLMAPI at every start (saved), and with the `paid` preset the workers follow it. `/freellm off` switches back.
 
-A `freellmapi/…` lead always takes its workers along, so a free session never spends OpenRouter credit. If FreeLLMAPI isn't connected, worker calls are blocked; they never quietly fall back to paid models. `/team` and the footer show the effect. The details are in [its README](extensions/freellmapi/README.md#how-much-should-freellmapi-do-freellm).
+Pi sends each provider only its own key, so your OpenRouter key never goes to FreeLLMAPI.
 
 ## Develop
 
@@ -71,9 +90,9 @@ npm run typecheck   # typecheck only
 
 | Test | Checks |
 |---|---|
-| `foreman/test/rpc-orchestrate-test.mjs` | Lead mode off by default, `/orchestrate` on/off, `/team`, `--orchestrate`, workers never lead, depth 1, resume keeps the toggle (11) |
+| `foreman/test/rpc-orchestrate-test.mjs` | Lead mode off by default, `/orchestrate` on/off, `/team`, `--orchestrate`, workers never lead, the depth ceiling, resume keeps the toggle, and the website guide path in the lead and frontend prompts (13) |
 | `foreman/test/rpc-keys-test.mjs` | A pasted key is saved and never sent, is used at once and by new processes, and wins over the env var (11) |
-| `extensions/freellmapi/test/rpc-workers-test.mjs` | Where workers and the lead really go for a FreeLLMAPI lead and for `/freellm off/workers/all` (saved, restart, picker, not connected), with a control run (21) |
+| `foreman/test/rpc-workers-test.mjs` | Where the lead, the workers and the sub-workers really send requests under `/workers paid/free/freellm`, a per-worker model, depth 1, a FreeLLMAPI lead, not-connected blocking, the pickers, and `/freellm all/off` (24) |
 | `extensions/freellmapi/test/rpc-login-test.mjs` | The `/login-with-freellm` flows against a mock FreeLLMAPI (3) |
 
 Each test drives Pi over RPC against local stand-ins and checks what Pi actually sends.
@@ -81,7 +100,7 @@ Each test drives Pi over RPC against local stand-ins and checks what Pi actually
 **Run the package from the repo without installing it:** `pi-config/dev` is a Pi agent dir that loads this repo (`"packages": ["../.."]`), defaults to a Haiku lead, and caps every model's output at 16k tokens:
 
 ```bash
-PI_CODING_AGENT_DIR=<repo>/pi-config/dev pi --no-skills --orchestrate
+PI_CODING_AGENT_DIR=<repo>/pi-config/dev pi --orchestrate
 ```
 
 Paste your OpenRouter key into that session once; it is saved in `pi-config/dev/auth.json`, which is gitignored like all of Pi's runtime state there.
@@ -90,8 +109,9 @@ Paste your OpenRouter key into that session once; it is saved in `pi-config/dev/
 
 ```
 package.json          Pi package manifest ("pi" field, dependencies) and the dev scripts
-foreman/              the package: orchestrate.ts (/orchestrate, --orchestrate, /team), prompt.ts (lead prompt),
-                      keys.ts (paste-to-save key), shared.ts, LEAD.md, agents/*.md, test/
+foreman/              the package: orchestrate.ts (/orchestrate, --orchestrate, /team), workers.ts (/workers, routing,
+                      sub-workers), prompt.ts (lead/sub-lead prompts), keys.ts (paste-to-save key), team.ts, shared.ts,
+                      LEAD.md, SUBLEAD.md, workers.json (presets), agents/*.md, skills/website/, test/
 extensions/freellmapi/  optional FreeLLMAPI provider + /login-with-freellm, with its tests and mock server
 pi-config/dev/        agent dir for running the package from the repo (16k output caps)
 scripts/check.mjs     typecheck + all offline tests

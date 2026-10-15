@@ -5,7 +5,7 @@
 //
 //   node foreman/test/rpc-orchestrate-test.mjs <pi-node> <pi-cli>
 import { spawn } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -83,6 +83,7 @@ function session(steps, { args = [], env = {}, agentDir: reuse, persist = false 
     child.on("exit", (code) => {
       out.exitCode = code;
       try { out.agents = readdirSync(join(agentDir, "agents")); } catch {}
+      try { out.frontend = readFileSync(join(agentDir, "agents", "frontend.md"), "utf8"); } catch {}
       if (!persist) rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       resolveSession(out);
     });
@@ -121,6 +122,9 @@ check(["backend.md", "frontend.md", "tests.md"].every((f) => s.agents.includes(f
 s = await session(["/orchestrate", "build it", "/team", "/orchestrate", "again"]);
 check(hasLead(s.seen[0]) && hasList(s.seen[0]) && hasTool(s.seen[0]), "/orchestrate -> on: lead prompt + agent list + subagent tool", describe(s.seen[0]));
 check(s.seen[1] && !hasLead(s.seen[1]) && !hasList(s.seen[1]) && !hasTool(s.seen[1]), "/orchestrate again -> off: all three gone", describe(s.seen[1]));
+const guide = `${repo.replace(/\\/g, "/")}/foreman/skills/website/SKILL.md`;
+check(s.seen[0]?.system.includes(guide) && !s.seen[0]?.system.includes("{{FOREMAN_DIR}}") && existsSync(guide), "lead prompt names the website guide by its real path (and it exists)", guide);
+check(s.frontend?.includes(guide) && !s.frontend.includes("{{FOREMAN_DIR}}"), "the frontend worker copy names the website guide by its real path", (s.frontend ?? "(no frontend.md)").split("\n").find((l) => l.includes("SKILL.md")) ?? "(no line mentions SKILL.md)");
 const team = s.notes.find((n) => n.startsWith("Foreman team") && /frontend\s+openrouter\/moonshotai\/kimi-k2\.7-code/.test(n));
 check(!!team && /lead\s+openrouter\/anthropic\/claude-haiku-5\.5/.test(team) && /backend\s+openrouter\/minimax\/minimax-m3/.test(team) && /tests\s+openrouter\/anthropic\/claude-haiku-5\.5/.test(team), "/team lists lead + worker models", (team ?? s.notes.join(" | ")).replace(/\n/g, " / "));
 
@@ -132,9 +136,9 @@ check(hasLead(s.seen[0]) && hasList(s.seen[0]) && hasTool(s.seen[0]), "--orchest
 s = await session(["do the task"], { args: ["--orchestrate"], env: { PI_SUBAGENT_DEPTH: "1", PI_SUBAGENT_MAX_DEPTH: "1" } });
 check(s.seen[0] && !hasLead(s.seen[0]) && !hasTool(s.seen[0]) && !/Unknown option/.test(s.stderr), "worker process with forwarded --orchestrate: no lead prompt, no subagent tool, no 'Unknown option'", describe(s.seen[0]));
 
-// 5. depth cap: the lead's agent list reports max depth 1 (workers can't delegate)
+// 5. depth ceiling: /workers depth (default 2; only workers on free models may use it, see rpc-workers-test)
 s = await session(["x"], { args: ["--orchestrate"] });
-check(/max depth 1/.test(s.seen[0]?.system ?? ""), "delegation capped at depth 1 without --subagent-max-depth", (/- Max depth:[^\n]*/.exec(s.seen[0]?.system ?? "") ?? ["(no depth line)"])[0]);
+check(/max depth 2/.test(s.seen[0]?.system ?? ""), "delegation ceiling is the /workers depth (default 2) without --subagent-max-depth", (/- Max depth:[^\n]*/.exec(s.seen[0]?.system ?? "") ?? ["(no depth line)"])[0]);
 
 // 6. The toggle is saved in the session: resuming (--continue) restores it, in both directions, without the flag.
 const kept = newAgentDir();

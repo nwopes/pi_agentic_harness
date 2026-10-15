@@ -2,7 +2,7 @@
   "name": "pi-foreman",
   "version": "0.1.0",
   "private": true,
-  "description": "Foreman for Pi: a strong lead model plans and delegates to cheaper worker models (/orchestrate, --orchestrate, /team), plus paste-to-save OpenRouter keys.",
+  "description": "Foreman for Pi: a strong lead model plans and delegates to cheaper or free worker models (/orchestrate, /workers, /team), with a website-building skill for workers and paste-to-save OpenRouter keys.",
   "keywords": [
     "pi-package"
   ],
@@ -12,7 +12,11 @@
       "./foreman/orchestrate.ts",
       "./node_modules/@mjakl/pi-subagent",
       "./foreman/prompt.ts",
-      "./foreman/keys.ts"
+      "./foreman/keys.ts",
+      "./foreman/workers.ts"
+    ],
+    "skills": [
+      "./foreman/skills"
     ]
   },
   "dependencies": {

@@ -17,14 +17,22 @@ export const LEAD_APPLIED_ENTRY = "foreman-lead-applied";
 export const MANAGED_MARK = "managed-by: pi-foreman";
 
 interface ForemanState {
+  /** Lead mode (the lead process only). */
   on: boolean;
+  /** Inside a worker: whether it may hand work to sub-workers (its model is free and the depth allows it). */
+  subWorkers: boolean;
+  /** The delegation depth ceiling pi-subagent was given when this Pi started. */
+  depthCeiling: number;
 }
 
 export function sharedState(): ForemanState {
   const g = globalThis as Record<symbol, ForemanState | undefined>;
   const key = Symbol.for("pi-foreman.state");
-  return (g[key] ??= { on: false });
+  return (g[key] ??= { on: false, subWorkers: false, depthCeiling: 1 });
 }
+
+/** Files in this package can say {{FOREMAN_DIR}}; it becomes the package's absolute path (forward slashes). */
+export const fillPaths = (text: string) => text.replaceAll("{{FOREMAN_DIR}}", PACKAGE_DIR.replace(/\\/g, "/"));
 
 /** True inside a worker process spawned by @mjakl/pi-subagent (it sets PI_SUBAGENT_DEPTH for children). */
 export function isWorker(): boolean {
@@ -81,7 +89,7 @@ export function syncWorkers(agentDir: string): { written: string[]; userOverride
   const written: string[] = [];
   const userOverrides: string[] = [];
   for (const f of mdFiles(AGENTS_DIR)) {
-    const managed = readFileSync(join(AGENTS_DIR, f), "utf8").replace(/^---\r?\n/, `---\n${MANAGED_MARK}\n`);
+    const managed = fillPaths(readFileSync(join(AGENTS_DIR, f), "utf8")).replace(/^---\r?\n/, `---\n${MANAGED_MARK}\n`);
     const dst = join(target, f);
     if (existsSync(dst)) {
       const current = readFileSync(dst, "utf8");

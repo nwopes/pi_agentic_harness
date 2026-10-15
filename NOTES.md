@@ -15,18 +15,21 @@ Path shorthands:
 
 ## The Foreman package (design)
 
-- **Layout:** the repo root is the package; `package.json` holds the `pi` manifest. Its files are in `foreman/`: `orchestrate.ts`, `prompt.ts`, `keys.ts`, `shared.ts`, `LEAD.md`, `agents/*.md` and `test/`. Lead mode is `--orchestrate` (headless) or `/orchestrate` (interactive).
+- **Layout:** the repo root is the package; `package.json` holds the `pi` manifest. Its files are in `foreman/`: `orchestrate.ts`, `prompt.ts`, `keys.ts`, `workers.ts`, `team.ts` (helper), `shared.ts`, `LEAD.md`, `SUBLEAD.md`, `workers.json`, `agents/*.md`, `skills/website/` and `test/`. Lead mode is `--orchestrate` (headless) or `/orchestrate` (interactive).
 - **Why the repo root:** a Pi git source cannot point at a subdirectory. The parser yields only `{repo, host, path, ref}`, and the clone root is the package root (`<pi>/dist/core/package-manager.js:1566-1573,1804`).
 - **Load order:** `package.json` `pi.extensions`, which Pi keeps in order (`package-manager.js:1962-1970`):
   1. `foreman/orchestrate.ts`
      - Registers `--orchestrate`, `/orchestrate` and `/team`.
-     - Sets `PI_SUBAGENT_MAX_DEPTH=1` before pi-subagent's factory reads it. It uses `??=`, so an explicit value wins (`<sub>/index.ts:386-387,715`).
+     - Sets `PI_SUBAGENT_MAX_DEPTH` to the saved `/workers` depth (default 2) before pi-subagent's factory reads it, and turns off pi-subagent's cycle check when the depth is above 1. It uses `??=`, so an explicit value wins (`<sub>/index.ts:386-387,715`). Which workers may actually delegate is decided per worker process (see "Worker models and sub-workers").
      - Copies the workers in at `session_start`, and toggles the `subagent` tool with `pi.setActiveTools`.
   2. `./node_modules/@mjakl/pi-subagent`. Pi reads that package's own `pi.extensions` (`package-manager.js:381-405`).
   3. `foreman/prompt.ts` (`before_agent_start`)
      - **On:** adds `LEAD.md` as a `<lead_mode>` section. If pi-subagent already replaced the whole prompt string (it returns `{systemPrompt: event.systemPrompt + list}`, `<sub>/index.ts:772-786`), the section is appended to that string instead.
      - **Off:** removes pi-subagent's `## Available Subagents` block, which it injects even while its tool is inactive.
+     - **In a worker:** adds `SUBLEAD.md` as `<sub_workers>` when that worker may delegate; otherwise removes the agent list.
   4. `foreman/keys.ts`: an `input` handler that saves a pasted OpenRouter key and never forwards the message to a model. It adds no tools and does not touch the prompt (see "OpenRouter key pasted into Pi").
+  5. `foreman/workers.ts`: `/workers`; puts the chosen model on each worker call; in worker processes, allows or removes sub-worker delegation (see "Worker models and sub-workers").
+  - Plus the skill directory `foreman/skills` (`pi.skills`).
 - **LEAD.md goes only to the lead.** Workers are child Pi processes on the same agent dir (`<sub>/runner.ts` spawns with `{...process.env}`), so they would load an agent-dir `AGENTS.md` too. In the original mock run, a team prompt placed in `AGENTS.md` reached all three workers. Hence the prompt is injected by `prompt.ts` and skipped in workers.
 - **Dependency, not vendored.**
   - Pi docs: "Other Pi packages used as dependencies must be included in the published tarball and referenced through their `node_modules` resource paths" (`<pi>/docs/packages.md:90`).
@@ -40,7 +43,7 @@ Path shorthands:
   - Files without the marker are the user's: never overwritten, they override that worker, and `/team` says so.
 - **Workers load the package too.** They inherit `PI_CODING_AGENT_DIR`, and pi-subagent forwards unknown parent flags such as `--orchestrate` (`<sub>/runner-cli.js:273-286`).
   - The flag is therefore registered in workers as well; otherwise Pi exits with "Unknown option".
-  - Everything else is skipped when `PI_SUBAGENT_DEPTH > 0`, which pi-subagent sets for children.
+  - The lead-only parts are skipped when `PI_SUBAGENT_DEPTH > 0`, which pi-subagent sets for children. `workers.ts` and `prompt.ts` have worker-side behaviour for sub-workers.
 - **Lead-mode audit entry.** Pi's JSON log records the base system prompt, not extension edits (checked offline: no `<lead_mode>` in any event).
   - So `prompt.ts` writes a `foreman-lead-applied` session entry with the SHA-256 of `LEAD.md` each time it applies it, and Pi emits it as `entry_appended`.
   - The system message's `toolsAdded` shows whether `subagent` was active.
@@ -277,31 +280,53 @@ From `<pi>/dist/core/extensions/types.d.ts`, `<pi>/docs/extensions.md` and `<pi>
   - The connection is saved to `<agentDir>/freellmapi.json` (gitignored) and passed as `apiKey`. Escape it with `$$`/`$!`, because Pi interpolates `$NAME` and a leading `!`.
   - It was written before `ModelRuntime.login` was found (see the API section), so it does not use `auth.json`.
   - Max output is `min(8192, context)`, matching FreeLLMAPI's own `setup-pi` generator.
-- **Where workers run.** A `tool_call` handler sets every `subagent` call's `model` (leaving explicit `freellmapi/…` models alone) to:
-  - `freellmapi/<lead id>` while the lead itself is on FreeLLMAPI, always;
-  - otherwise `freellmapi/<setting model>` when `/freellm` is `workers` or `all`.
-  - With `off` and a paid lead, workers keep their own models.
-  - It answers Foreman's `foreman:worker-models` query, so `/team` shows the effective models.
-  - Workers get the provider because they inherit `PI_CODING_AGENT_DIR` and so load the same packages and `freellmapi.json`.
-- **`/freellm off|workers|all [model]` (added 2026-10-15, at the user's request):** the user wants a good lead with free workers most of the time, and sometimes free only.
-  - **Storage:** the setting is saved in `<agentDir>/freellmapi-mode.json` (`{mode, model}`, gitignored), separate from the connection so a re-login keeps it. Logout deletes both.
+- **Worker routing moved to Foreman's `/workers` (2026-10-16).** It is in the next section. This extension no longer touches `subagent` calls.
+  - Workers still get the `freellmapi` provider because they inherit `PI_CODING_AGENT_DIR`, so they load the same packages and `freellmapi.json`.
+- **`/freellm off|all [model]`** (added 2026-10-15; `workers` removed 2026-10-16, which now just points to `/workers freellm`):
+  - **Storage:** the setting is saved in `<agentDir>/freellmapi-mode.json` (`{mode, model}`, gitignored), separate from the connection so a re-login keeps it. Logout deletes both. An old saved `workers` value reads as `off`.
   - **`all` and the lead:** `pi.setModel` "sets the model for the current session without changing the configured default for new sessions" (`types.d.ts`). So `all` switches the lead at `session_start`, every start, including over an explicit paid `--model`. It skips worker processes (`PI_SUBAGENT_DEPTH>0`).
-  - **Switching back:** `off`/`workers` restore the lead that `all` replaced in this session. If the session began on FreeLLMAPI, the lead stays and the user is told to use `/model`.
-  - **Not connected** (no `freellmapi/<model>` in the registry): the command refuses `workers`/`all`, and the `tool_call` handler **blocks** the call (`{block:true, reason}`) instead of letting workers fall back to paid models.
+  - **Switching back:** `off` restores the lead that `all` replaced in this session. If the session began on FreeLLMAPI, the lead stays and the user is told to use `/model`.
+  - **Not connected** (no `freellmapi/…` model in the registry): `all` is refused.
   - **Footer:** `ctx.ui.setStatus("freellmapi", …)`. Over RPC this arrives as `extension_ui_request` `method:"setStatus"` with `statusKey` and `statusText`.
 - **Verified offline:**
   - `test/rpc-login-test.mjs` against `test/mock-freellmapi.mjs`, 3/3: password login → separate key → model switch; pasted unified key; wrong password.
   - Print mode: login with args, a streamed turn using only the saved connection, `status`, `logout`, the env-only path, a wrong key, and no server.
-  - `test/rpc-workers-test.mjs`, 21/21:
-    - Lead on `freellmapi/auto:smart` with `--orchestrate`: a real worker process sent `auto:smart` to FreeLLMAPI with the FreeLLMAPI key, and **zero requests reached OpenRouter**, even though `OPENROUTER_API_KEY` was set.
-    - Control run, lead on OpenRouter: the worker went to OpenRouter as `minimax/minimax-m3`.
-    - `/freellm workers`: lead requests on OpenRouter, worker on FreeLLMAPI; `/team`, the notice and the footer show it; it survives a restart.
-    - `all`: zero OpenRouter requests. `off`: paid lead and paid workers are back.
-    - Saved `all`: a session started with a paid `--model` goes to FreeLLMAPI.
-    - Picker: picking from both lists works.
-    - Not connected: the command is refused, and delegation is blocked with no worker request anywhere.
-  - Test detail: Pi's Anthropic-format requests end with an extra `{"role":"system","content":[],"output_config":{…}}` entry after the user message, so a stand-in looking for "the last message" must skip system entries.
+  - Routing with FreeLLMAPI is covered by `foreman/test/rpc-workers-test.mjs` (next section).
 - **Not tested against a real FreeLLMAPI install.**
+
+## Worker models and sub-workers (`foreman/workers.ts`, `/workers`; added 2026-10-16, at the user's request)
+
+- **What the user asked for:** choose paid, free OpenRouter or FreeLLMAPI workers, customisable; let workers on free models orchestrate further (multilevel); keep one place to choose.
+- **Presets:** defaults are in `foreman/workers.json`, and the user's choice is saved in `<agentDir>/foreman-workers.json` (`{preset, models: {<preset>: {<worker>: model}}, depth}`).
+  - **Preset meanings:** `paid` uses the agent files' models; `free` and `freellm` use the preset's models.
+  - **Per-worker choices** replace the preset model.
+  - **FreeLLMAPI lead:** with `paid` and a `freellmapi/…` lead, workers follow the lead (the earlier FreeLLMAPI guarantee, now in `team.ts effectiveTeam`).
+- **Routing:** the lead's `tool_call` handler sets `model` on every call to a Foreman worker (other agents are untouched).
+  - If a model is missing from the registry or has no credentials (`ModelRegistry.find`, `hasConfiguredAuth`), the whole call is **blocked** with the reason rather than falling back.
+- **"Free"** means the registry's `cost.input === 0 && cost.output === 0`. Checked offline with `ModelRuntime`:
+  - Pi's bundled OpenRouter catalog has the `:free` models at cost 0 with `api: openai-completions`, e.g. `cohere/north-mini-code:free`, `poolside/laguna-s-2.1:free`, `google/gemma-4-31b-it:free`, `openrouter/free`.
+  - FreeLLMAPI models are registered at cost 0.
+- **Free preset defaults (2026-10-16):**
+  - **Where they came from:** OpenRouter's public `/api/v1/models` listed 18 free models, 15 of them with `tools` in `supported_parameters`. `--list-models` with Pi's offline catalog showed 14 `:free` ids.
+  - **How they were picked:** by name and specs only, untested. `openrouter/free` was not chosen as a default because Pi lists its max output as 4.1K.
+- **Multilevel (sub-workers):**
+  - **The ceiling is fixed at startup.** pi-subagent reads its depth ceiling once, in its factory (`index.ts resolveDelegationDepthConfig`), and passes exactly that value to each child as `PI_SUBAGENT_MAX_DEPTH` (`runner.ts:514-526`). Changing `process.env` later does not reach new children. So `orchestrate.ts` sets the ceiling from the saved `/workers` depth before pi-subagent loads (default 2, at most 3).
+  - **Which worker may delegate** is decided per worker process at `session_start` (`workers.ts`): only if its own model is free and its depth (`PI_SUBAGENT_DEPTH`) is below the saved depth. Otherwise `subagent` is removed from its active tools, and `prompt.ts` strips pi-subagent's agent list. Lowering the depth or switching to `paid` therefore applies to the next worker without a restart; raising the depth above the startup ceiling needs one.
+  - **Sub-calls** from a worker are rewritten to the worker's own model, so nesting never adds cost.
+  - **Cycle check:** pi-subagent's default cycle check (`DEFAULT_PREVENT_CYCLE_DELEGATION = true`, `PI_SUBAGENT_PREVENT_CYCLES`) would stop a frontend worker from using frontend sub-workers. With a ceiling above 1 it is set to `0`; the ceiling still bounds nesting.
+  - **Instructions:** a worker allowed to delegate gets `foreman/SUBLEAD.md` as a `<sub_workers>` prompt section.
+- **Website guide:** `foreman/skills/website/` is shipped as a package skill (`"pi": {"skills": ["./foreman/skills"]}`, `<pi>/docs/packages.md`). Because a model may skip a skill, `LEAD.md`, `SUBLEAD.md` and `agents/frontend.md` also name it by absolute path. `{{FOREMAN_DIR}}` is filled in when the agent files are copied and when the prompts are loaded (`shared.ts fillPaths`).
+- **Verified offline, `foreman/test/rpc-workers-test.mjs`, 24/24.** Real lead, worker and sub-worker Pi processes ran against one stand-in for both OpenRouter and FreeLLMAPI. The stand-in scripts a lead delegation per prompt, and a "SUB-TASK" from any worker that has the `subagent` tool.
+  - **Paid default:** the worker is on `minimax/minimax-m3`, has no `subagent` tool, and spawns no sub-worker.
+  - **`/workers free`:** the worker is on `poolside/laguna-s-2.1:free`, has `subagent` and `<sub_workers>`, and its sub-worker ran on the same free model without `subagent` (depth 2). No paid model was used.
+  - **Per-worker model:** a free model is accepted; a paid one is refused in `free`; `default` restores the preset.
+  - **`/workers depth 1`:** no `subagent` tool for the free worker.
+  - **`/workers freellm`:** the worker and sub-worker are on FreeLLMAPI `auto:smart` with the FreeLLMAPI key, and only the lead's requests went to OpenRouter.
+  - **FreeLLMAPI lead with `paid`:** zero OpenRouter requests, and `/team` says the workers follow the lead.
+  - **Not connected:** `/workers freellm` is refused, and a saved `freellm` preset blocks delegation with no worker request.
+  - **Pickers** work. **`/freellm all`/`off`**, **saved `all`** and the **footer** behave as before.
+  - **Test detail:** Pi's Anthropic-format requests end with an extra `{"role":"system","content":[],"output_config":{…}}` entry after the user message, so a stand-in looking for "the last message" must skip system entries.
+- **Not verified:** real free OpenRouter models (their tool calling and rate limits under nested delegation), a real FreeLLMAPI server, or whether free models follow the website guide well.
 
 ## OpenRouter key pasted into Pi (`foreman/keys.ts`)
 
@@ -326,3 +351,4 @@ From `<pi>/dist/core/extensions/types.d.ts`, `<pi>/docs/extensions.md` and `<pi>
 - **`/orchestrate` toggled with a real model.** It was verified only against the stand-in; `--orchestrate` was verified live.
 - **Real OpenRouter accepting Pi's request shapes for every model.** The stand-ins accepted anything. Anthropic models get an adaptive `reasoning` param on `/v1/messages`; Kimi and MiniMax get `reasoning:{effort:"medium"}` on `/chat/completions`.
 - **A real FreeLLMAPI server, and a real OpenRouter key through the paste flow.**
+- **Free OpenRouter workers and sub-workers against the real service:** tool calling, rate limits, and the quality of sites built with the website guide.

@@ -1,0 +1,24 @@
+{
+  "presets": {
+    "paid": {
+      "label": "paid OpenRouter models from foreman/agents, best results"
+    },
+    "free": {
+      "label": "free OpenRouter models, $0, rate-limited",
+      "models": {
+        "frontend": "openrouter/cohere/north-mini-code:free",
+        "backend": "openrouter/poolside/laguna-s-2.1:free",
+        "tests": "openrouter/google/gemma-4-31b-it:free"
+      }
+    },
+    "freellm": {
+      "label": "FreeLLMAPI with your own free-tier keys, $0",
+      "models": {
+        "frontend": "freellmapi/auto:smart",
+        "backend": "freellmapi/auto:smart",
+        "tests": "freellmapi/auto:fast"
+      }
+    }
+  },
+  "depth": 2
+}

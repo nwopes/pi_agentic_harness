@@ -76,7 +76,7 @@ step("typecheck foreman/ and extensions/ against Pi's types", tsc.status === 0);
 if (process.argv.includes("--types-only")) process.exit(failed ? 1 : 0);
 
 const run = (file) => spawnSync(pi.node, [join(repo, file), pi.node, pi.cli], { cwd: repo, stdio: "inherit" }).status === 0;
-for (const file of ["foreman/test/rpc-orchestrate-test.mjs", "foreman/test/rpc-keys-test.mjs", "extensions/freellmapi/test/rpc-workers-test.mjs"]) {
+for (const file of ["foreman/test/rpc-orchestrate-test.mjs", "foreman/test/rpc-keys-test.mjs", "foreman/test/rpc-workers-test.mjs"]) {
   console.log(`== ${file}`);
   step(file, run(file));
 }

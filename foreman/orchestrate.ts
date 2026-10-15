@@ -2,26 +2,17 @@
 //
 //   /orchestrate [on|off]   toggle lead mode in this session (no argument flips it); persisted in the session
 //   --orchestrate           start in lead mode, e.g. for headless `--mode json` runs
-//   /team                   the lead's model, each worker's model, and where the OpenRouter key comes from
+//   /team                   the lead's model, each worker's model (as /workers set them), sub-worker depth, and
+//                           where the OpenRouter key comes from
 //
-// package.json "pi.extensions" loads this file, then @mjakl/pi-subagent, then prompt.ts and keys.ts. This file must
-// come first: it caps the delegation depth before pi-subagent reads it and copies the worker definitions before
-// pi-subagent discovers agents at session_start.
+// package.json "pi.extensions" loads this file, then @mjakl/pi-subagent, then prompt.ts, keys.ts and workers.ts. This
+// file must come first: it sets the delegation depth ceiling before pi-subagent reads it and copies the worker
+// definitions before pi-subagent discovers agents at session_start.
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { maskKey, openRouterKey } from "./keys.ts";
-import { isWorker, sharedState, STATE_ENTRY, syncWorkers, team } from "./shared.ts";
+import { isWorker, sharedState, STATE_ENTRY, syncWorkers } from "./shared.ts";
+import { describeTeam, loadSettings } from "./team.ts";
 
 const TOOL = "subagent";
-/**
- * Lets another extension report that it runs the workers on a different model than their agent files say. Listeners
- * receive { lead, redirect: {} } and may set redirect.model and redirect.by without awaiting anything (pi.events calls
- * them synchronously up to their first await). extensions/freellmapi does this while the lead is on FreeLLMAPI.
- */
-export const WORKER_MODELS_EVENT = "foreman:worker-models";
-interface WorkerModelsQuery {
-  lead: string | undefined;
-  redirect: { model?: string; by?: string };
-}
 
 export default function orchestrate(pi: ExtensionAPI) {
   // Registered in workers too: pi-subagent forwards unknown parent flags to its children, and Pi exits on an
@@ -38,9 +29,16 @@ export default function orchestrate(pi: ExtensionAPI) {
     return;
   }
 
-  // Lead -> workers only: workers get no subagent tool. pi-subagent reads this once, in its factory, so it must be
-  // set before that runs. An explicit --subagent-max-depth or PI_SUBAGENT_MAX_DEPTH still wins.
-  process.env.PI_SUBAGENT_MAX_DEPTH ??= "1";
+  // The delegation depth ceiling, from /workers (default 2: workers may use sub-workers). pi-subagent reads it once,
+  // in its factory, and passes it to every child, so it must be set before that runs; an explicit
+  // --subagent-max-depth or PI_SUBAGENT_MAX_DEPTH still wins. Which workers may actually delegate is decided per
+  // worker process (workers.ts: only workers on free models). Above depth 1, a worker may also hand parts of its task
+  // to another worker of the same kind (a frontend worker to frontend sub-workers), so pi-subagent's cycle check is
+  // off; the depth ceiling still bounds the nesting.
+  const ceiling = loadSettings().depth;
+  process.env.PI_SUBAGENT_MAX_DEPTH ??= String(ceiling);
+  if (ceiling > 1) process.env.PI_SUBAGENT_PREVENT_CYCLES ??= "0";
+  state.depthCeiling = Number(process.env.PI_SUBAGENT_MAX_DEPTH) || ceiling;
 
   const report = (ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info") => {
     if (ctx.hasUI) ctx.ui.notify(message, level);
@@ -62,35 +60,7 @@ export default function orchestrate(pi: ExtensionAPI) {
     pi.setActiveTools([...active]);
   };
 
-  const describe = (ctx: ExtensionContext) => {
-    // With no usable model (e.g. no key yet) Pi reports a placeholder "unknown/unknown".
-    const lead = ctx.model && ctx.model.provider !== "unknown" ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
-    const query: WorkerModelsQuery = { lead, redirect: {} };
-    pi.events.emit(WORKER_MODELS_EVENT, query);
-    const { model: redirected, by } = query.redirect;
-    const workers = team(getAgentDir());
-    const rows = workers.map((w) =>
-      redirected
-        ? `  ${w.name.padEnd(9)} ${redirected}   (${by ?? "another extension"}: instead of ${w.model})`
-        : `  ${w.name.padEnd(9)} ${w.model}${w.source === "package" ? "" : `   (your override: ${w.source})`}`,
-    );
-    const usesOpenRouter = (lead?.startsWith("openrouter/") ?? false) || (!redirected && workers.some((w) => w.model.startsWith("openrouter/")));
-    const key = openRouterKey();
-    const keyLine = !usesOpenRouter
-      ? "OpenRouter key: not used by this team"
-      : key.source === "saved"
-        ? `OpenRouter key: saved, ${maskKey(key.key!)}${key.envAlsoSet ? " (used instead of OPENROUTER_API_KEY)" : ""}`
-        : key.source === "env"
-          ? `OpenRouter key: from OPENROUTER_API_KEY, ${maskKey(key.key!)}`
-          : "OpenRouter key: none yet. Paste your key into Pi (just the key) to save it.";
-    return [
-      `Foreman team: lead mode ${state.on ? "ON" : "OFF"}`,
-      `  ${"lead".padEnd(9)} ${lead ?? "(no model selected)"}   (this session's model${state.on ? "" : "; working alone"})`,
-      ...rows,
-      keyLine,
-      state.on ? "Workers can't delegate further. Toggle with /orchestrate." : "Turn on with /orchestrate (or start Pi with --orchestrate).",
-    ].join("\n");
-  };
+  const describe = (ctx: ExtensionContext) => describeTeam(ctx, state.on);
 
   pi.on("session_start", async (_event, ctx) => {
     // Runs before pi-subagent's own session_start (load order), so it discovers the workers we copy here.
@@ -120,7 +90,7 @@ export default function orchestrate(pi: ExtensionAPI) {
   });
 
   pi.registerCommand("team", {
-    description: "Show which model the lead and each Foreman worker is using",
+    description: "Show the lead model, each worker's model (see /workers), sub-worker depth and the OpenRouter key",
     handler: async (_args, ctx) => report(ctx, describe(ctx)),
   });
 }

@@ -30,27 +30,26 @@ Other forms:
 
 Models: whatever `/v1/models` lists (`auto`, `auto:<profile>`, catalog ids), plus `auto:smart` and `auto:fast`. The router accepts those two but doesn't list them. All are registered as zero-cost, text-only and non-reasoning, with max output `min(8192, context)`, matching FreeLLMAPI's own `setup-pi` generator.
 
-## How much should FreeLLMAPI do? `/freellm`
+## Using FreeLLMAPI with Foreman
 
-| Setting | Lead (orchestration) | Workers | Use it when |
-|---|---|---|---|
-| `/freellm off` (default) | the model you picked | their own models (Foreman's: OpenRouter, paid) | you want the best results |
-| `/freellm workers` | the model you picked, e.g. Opus on OpenRouter | **FreeLLMAPI, free** | a good model plans and checks, free models do the typing |
-| `/freellm all` | **FreeLLMAPI, free** | **FreeLLMAPI, free** | free only: nothing goes to OpenRouter |
+| You want | Command |
+|---|---|
+| A good lead (e.g. Opus) that orchestrates, with every worker free on FreeLLMAPI | `/workers freellm` (Foreman) |
+| Everything free on FreeLLMAPI, lead included | `/freellm all` |
+| Back to normal | `/freellm off` and/or `/workers paid` |
 
-- **`/freellm` on its own** opens a list: pick the setting, then the FreeLLMAPI model (`auto:smart` first).
-- **`/freellm workers auto:fast`** sets the setting and the model in one go. Without a model, the last one you chose is used (default `auto:smart`). `/freellm status` shows the current setting.
-- **It's saved.** The setting is stored in `<agentDir>/freellmapi-mode.json` and applies to every session until you change it. The footer shows it while it isn't `off`.
-- **`all` also moves the lead.** It switches the session to FreeLLMAPI right away and at every start, even when Pi is launched with a paid `--model`. `off` and `workers` switch back to the lead you had before, if `all` replaced it in this session.
-- **A FreeLLMAPI lead always takes its workers along,** even with `off`: if you pick a `freellmapi/…` model yourself, nothing goes to OpenRouter.
-- **Never a silent fallback to paid models.** If the setting says workers run on FreeLLMAPI but FreeLLMAPI isn't connected, worker calls are blocked with a message saying why. They don't quietly run on OpenRouter. `/freellm workers` or `all` is refused until you've run `/login-with-freellm`. `/login-with-freellm logout` also resets the setting to `off`.
-- Foreman's `/team` shows the effective worker models, for example `backend freellmapi/auto:smart (FreeLLMAPI, /freellm workers: instead of openrouter/minimax/minimax-m3)`.
+- **`/freellm all`** switches the lead to FreeLLMAPI right away and at every start, even when Pi is launched with a paid `--model`. The setting is saved in `<agentDir>/freellmapi-mode.json`, and the footer shows it. `/freellm all auto:fast` also picks the model.
+- **`/freellm off`** switches back to the lead you had before, if `all` replaced it in this session.
+- **`/freellm` on its own** opens a picker.
+- **Refused until connected:** `/freellm all` is refused until you've run `/login-with-freellm`. `/login-with-freellm logout` also resets it to `off`.
+- **Workers follow a FreeLLMAPI lead.** With Foreman's `paid` preset, a `freellmapi/…` lead takes the workers along, so nothing reaches OpenRouter.
+- **Worker models belong to `/workers`.** Choosing them used to be `/freellm workers`; that now just points to `/workers freellm`.
+- **Never a silent fallback to paid models.** If workers are set to FreeLLMAPI but it isn't connected, Foreman blocks delegation and says why.
 
 ## Your OpenRouter key stays out of it
 
 - **The lead:** Pi sends each provider only its own key. A `freellmapi/…` session talks to FreeLLMAPI with the FreeLLMAPI key, and your OpenRouter key never goes there.
-- **Workers:** when they run on FreeLLMAPI (see `/freellm` above), every `subagent` call is moved onto the FreeLLMAPI model before it runs. A call that already names a `freellmapi/…` model is left alone.
-- **How it works:** a `tool_call` handler sets each call's `model` field, and `@mjakl/pi-subagent` lets a per-call model override the agent file's. Worker processes share the agent dir, so they load this extension and its saved connection too.
+- **Workers:** Foreman routes each worker call to the model `/workers` chose; see the main README. Worker processes share the agent dir, so they load this extension and its saved connection too.
 - **Pi may still contact OpenRouter in the background,** for example to refresh its OpenRouter model list at startup when it has a key. That call reads the model list and is not a model request.
 
 ## Troubleshooting
@@ -75,15 +74,4 @@ node test/rpc-login-test.mjs <pi-node> <pi-cli>              # clicks through th
 
 `rpc-login-test.mjs` covers three scenarios: password login → separate Pi key → model switch; pasted unified key with a non-default model; wrong password (error shown, nothing saved).
 
-```bash
-node test/rpc-workers-test.mjs <pi-node> <pi-cli>            # self-contained; needs no mock running
-```
-
-`rpc-workers-test.mjs` (21 checks) loads the Foreman package and this extension. One local server stands in for both FreeLLMAPI and OpenRouter, and the lead answers each prompt with a real `subagent` call.
-- **Lead on FreeLLMAPI:** the worker process's request reaches FreeLLMAPI as `auto:smart` with the FreeLLMAPI key, and zero requests reach OpenRouter.
-- **Control run, lead on OpenRouter:** the worker goes to OpenRouter as `minimax/minimax-m3`, so the test would catch a leak.
-- **`/freellm workers`:** the lead's requests stay on OpenRouter and the worker's go to FreeLLMAPI. `/team`, the notice and the footer all show it, and the setting survives a restart.
-- **`/freellm all`, then `off`:** after `all`, lead and worker are both on FreeLLMAPI with zero OpenRouter requests. After `off`, the paid lead and paid workers are back.
-- **Saved `all`:** a session launched with a paid model starts on FreeLLMAPI.
-- **Plain `/freellm`:** picking from both lists works.
-- **Not connected:** the command is refused, and a saved `workers` setting blocks delegation instead of paying.
+Routing with FreeLLMAPI covers `/workers freellm`, a FreeLLMAPI lead, not connected, and `/freellm all`/`off`/saved `all`. It is tested end to end in `foreman/test/rpc-workers-test.mjs`, which loads both packages. `npm run check` at the repo root runs everything.

@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tidyflow: plan the week in ten minutes</title>
+    <meta name="description" content="Tidyflow gives small teams one calm weekly board: shared priorities, gentle reminders and focus time, without another meeting." />
+    <script>document.documentElement.classList.add("js")</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="base.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body id="top">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <nav class="container nav" aria-label="Main">
+        <a class="brand" href="#top"><span class="brand__mark" aria-hidden="true"></span>Tidyflow</a>
+        <button class="nav__toggle" type="button" aria-expanded="false" aria-controls="nav-menu" aria-label="Open menu">
+          <svg class="icon-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
+        <div class="nav__menu" id="nav-menu">
+          <ul class="nav__links">
+            <li><a href="#features">Features</a></li>
+            <li><a href="#how">How it works</a></li>
+            <li><a href="#pricing">Pricing</a></li>
+            <li><a href="#faq">FAQ</a></li>
+          </ul>
+          <div class="nav__actions">
+            <a class="btn btn--primary btn--sm" href="#cta">Start free</a>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <main id="main">
+      <!-- HERO (split) -->
+      <section class="hero hero--split" aria-labelledby="hero-title">
+        <div class="container hero__inner">
+          <div>
+            <span class="badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1-5.1-1.9 5.1-1.9L12 3.5z" /></svg>
+              New: weekly planning templates
+            </span>
+            <h1 id="hero-title">Plan the week in <span class="highlight">ten minutes</span>, not two meetings</h1>
+            <p class="lead">Tidyflow gives your team one calm board for the week. Everyone sees what matters, who owns it and what is next, so Monday starts with work instead of status updates.</p>
+            <div class="hero__actions">
+              <a class="btn btn--primary btn--lg" href="#cta">
+                Start free
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+              </a>
+              <a class="btn btn--secondary btn--lg" href="#how">See how it works</a>
+            </div>
+            <p class="hero__note">Free for teams of up to 5. No credit card needed.</p>
+          </div>
+          <div class="mock" role="img" aria-label="Preview of the Tidyflow weekly board with tasks and a progress chart">
+            <div class="mock__bar"><span></span><span></span><span></span></div>
+            <div class="mock__body">
+              <div class="mock__row"><span class="mock__dot"></span><span class="mock__line"></span></div>
+              <div class="mock__row"><span class="mock__dot"></span><span class="mock__line mock__line--short"></span></div>
+              <div class="mock__row"><span class="mock__dot"></span><span class="mock__line"></span></div>
+              <div class="mock__chart">
+                <span style="height: 45%"></span><span style="height: 70%"></span><span style="height: 55%"></span><span style="height: 85%"></span><span style="height: 65%"></span><span style="height: 95%"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LOGO STRIP -->
+      <section class="section--tight" aria-label="Teams using Tidyflow">
+        <div class="container">
+          <p class="logos-title">Small teams plan their week with Tidyflow</p>
+          <ul class="logos">
+            <li>Northpeak</li>
+            <li>Fieldnote</li>
+            <li>Harbor Labs</li>
+            <li>Quarry &amp; Co</li>
+            <li>Brightside</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- FEATURES -->
+      <section class="section section--alt" id="features" aria-labelledby="features-title">
+        <div class="container">
+          <div class="section-head section-head--center">
+            <span class="eyebrow">Features</span>
+            <h2 id="features-title">Everything a small team needs, nothing it doesn't</h2>
+            <p class="lead">Six focused tools that replace the planning meeting, the status spreadsheet and the reminder thread.</p>
+          </div>
+          <div class="grid grid--3">
+            <article class="card card--hover reveal">
+              <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3.5l8.5 4.5-8.5 4.5L3.5 8 12 3.5z" /><path d="M3.5 12.5l8.5 4.5 8.5-4.5" /></svg></div>
+              <h3>One shared weekly board</h3>
+              <p>Every task, owner and deadline for the week on a single page your whole team can read in a minute.</p>
+            </article>
+            <article class="card card--hover reveal">
+              <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z" /></svg></div>
+              <h3>Priorities that sort themselves</h3>
+              <p>Mark what matters most and Tidyflow keeps it at the top, so urgent work never hides behind busywork.</p>
+            </article>
+            <article class="card card--hover reveal">
+              <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg></div>
+              <h3>Gentle reminders</h3>
+              <p>A short nudge the day before something is due, sent to the person who owns it and no one else.</p>
+            </article>
+            <article class="card card--hover reveal">
+              <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></svg></div>
+              <h3>Protected focus time</h3>
+              <p>Block quiet hours for deep work. Tidyflow holds notifications until you are done.</p>
+            </article>
+            <article class="card card--hover reveal">
+              <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 20V4" /><path d="M4 20h16" /><path d="M8 16v-5M12 16V8M16 16v-3" /></svg></div>
+              <h3>Progress you can see</h3>
+              <p>A Friday summary shows what shipped, what slipped and why, written in plain language.</p>
+            </article>
+            <article class="card card--hover reveal">
+              <div class="icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 12a8 8 0 01-14 5.3M4 12a8 8 0 0114-5.3" /><path d="M18 3v4h-4M6 21v-4h4" /></svg></div>
+              <h3>Works where you work</h3>
+              <p>Tasks sync with your calendar and chat, so updates happen where your team already talks.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- HOW IT WORKS -->
+      <section class="section" id="how" aria-labelledby="how-title">
+        <div class="container">
+          <div class="section-head">
+            <span class="eyebrow">How it works</span>
+            <h2 id="how-title">From scattered to sorted in three steps</h2>
+          </div>
+          <ol class="steps">
+            <li class="step reveal">
+              <h3>Add this week's work</h3>
+              <p>Paste a list or import from your tracker. Tidyflow groups tasks by owner automatically.</p>
+            </li>
+            <li class="step reveal">
+              <h3>Pick the three that matter</h3>
+              <p>Each person stars their top priorities. The board shows the whole team's focus at a glance.</p>
+            </li>
+            <li class="step reveal">
+              <h3>Let the week run</h3>
+              <p>Reminders, focus blocks and the Friday summary keep things moving without a check-in meeting.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- SPLIT -->
+      <section class="section section--alt" aria-labelledby="calm-title">
+        <div class="container split">
+          <div>
+            <span class="eyebrow">Why teams switch</span>
+            <h2 id="calm-title">Built for teams that would rather do the work</h2>
+            <p class="lead">Most planning tools grow into a second job. Tidyflow stays small on purpose.</p>
+            <ul class="checklist mt-8">
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Set up in one sitting, with no training needed</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>One page per week instead of endless boards</li>
+              <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Your data exports to a spreadsheet at any time</li>
+            </ul>
+          </div>
+          <div class="split__media">
+            <div class="media-frame" role="img" aria-label="Illustration of a tidy weekly plan with three highlighted priorities">
+              <svg viewBox="0 0 400 300" fill="none" aria-hidden="true" focusable="false">
+                <rect class="svg-surface" x="40" y="40" width="320" height="220" rx="18" />
+                <rect class="svg-accent" x="70" y="75" width="150" height="14" rx="7" />
+                <rect class="svg-soft" x="70" y="115" width="260" height="34" rx="10" />
+                <rect class="svg-soft" x="70" y="160" width="260" height="34" rx="10" />
+                <rect class="svg-surface-2" x="70" y="205" width="200" height="34" rx="10" />
+                <circle class="svg-accent" cx="92" cy="132" r="7" />
+                <circle class="svg-accent" cx="92" cy="177" r="7" />
+                <rect class="svg-line" x="110" y="128" width="150" height="8" rx="4" />
+                <rect class="svg-line" x="110" y="173" width="120" height="8" rx="4" />
+              </svg>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TESTIMONIALS -->
+      <section class="section" aria-labelledby="quotes-title">
+        <div class="container">
+          <div class="section-head section-head--center">
+            <span class="eyebrow">What teams say</span>
+            <h2 id="quotes-title">Calmer Mondays, fewer meetings</h2>
+          </div>
+          <div class="grid grid--3">
+            <figure class="card quote reveal">
+              <blockquote><p>We cancelled our weekly planning call in the first month. Nobody misses it.</p></blockquote>
+              <figcaption><span class="avatar" aria-hidden="true">PR</span><span><span class="quote__name">Priya Raman</span><br /><span class="quote__role">Operations lead, Fieldnote Studio</span></span></figcaption>
+            </figure>
+            <figure class="card quote reveal">
+              <blockquote><p>The Friday summary is the first status report my team actually reads.</p></blockquote>
+              <figcaption><span class="avatar" aria-hidden="true">DM</span><span><span class="quote__name">Daniel Moreau</span><br /><span class="quote__role">Engineering manager, Harbor Labs</span></span></figcaption>
+            </figure>
+            <figure class="card quote reveal">
+              <blockquote><p>Setting it up took one coffee. Getting everyone to use it took zero reminders.</p></blockquote>
+              <figcaption><span class="avatar" aria-hidden="true">AK</span><span><span class="quote__name">Amara Kofi</span><br /><span class="quote__role">Founder, Brightside Goods</span></span></figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRICING -->
+      <section class="section section--alt" id="pricing" aria-labelledby="pricing-title">
+        <div class="container">
+          <div class="section-head section-head--center">
+            <span class="eyebrow">Pricing</span>
+            <h2 id="pricing-title">Simple plans that grow with you</h2>
+            <p class="lead">Start free. Upgrade when your team needs more than one board.</p>
+          </div>
+          <div class="grid grid--3">
+            <article class="card plan">
+              <h3>Starter</h3>
+              <p class="plan__price">$0 <span>/ month</span></p>
+              <p>For small teams trying a calmer way to plan.</p>
+              <ul class="checklist">
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Up to 5 people</li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>One weekly board</li>
+              </ul>
+              <a class="btn btn--secondary btn--block" href="#cta">Start free</a>
+            </article>
+            <article class="card plan plan--featured">
+              <span class="badge plan__badge">Most popular</span>
+              <h3>Team</h3>
+              <p class="plan__price">$8 <span>/ person / month</span></p>
+              <p>For growing teams that plan across projects.</p>
+              <ul class="checklist">
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Unlimited boards</li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Calendar and chat sync</li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Friday summaries</li>
+              </ul>
+              <a class="btn btn--primary btn--block" href="#cta">Try Team free for 14 days</a>
+            </article>
+            <article class="card plan">
+              <h3>Business</h3>
+              <p class="plan__price">$15 <span>/ person / month</span></p>
+              <p>For organisations that need control and support.</p>
+              <ul class="checklist">
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Single sign-on</li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>Priority support</li>
+              </ul>
+              <a class="btn btn--secondary btn--block" href="mailto:sales@tidyflow.example">Talk to sales</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ -->
+      <section class="section" id="faq" aria-labelledby="faq-title">
+        <div class="container">
+          <div class="section-head section-head--center">
+            <span class="eyebrow">FAQ</span>
+            <h2 id="faq-title">Questions, answered</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>Is the Starter plan really free?</summary>
+              <p>Yes. Teams of up to five people can use one weekly board for as long as they like.</p>
+            </details>
+            <details>
+              <summary>Can we import tasks from another tool?</summary>
+              <p>You can paste any list, or import a CSV export from most task trackers.</p>
+            </details>
+            <details>
+              <summary>Do you offer discounts for non-profits?</summary>
+              <p>Registered non-profits get the Team plan at half price. Email us to set it up.</p>
+            </details>
+            <details>
+              <summary>Can I cancel at any time?</summary>
+              <p>Yes. Plans are monthly, and you keep your data as a spreadsheet export.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- CTA BAND -->
+      <section class="section" id="cta" aria-labelledby="cta-title">
+        <div class="container">
+          <div class="cta-band">
+            <h2 id="cta-title">Start planning calmer weeks</h2>
+            <p>Create a free workspace in under a minute and invite your team when you are ready.</p>
+            <div class="hero__actions">
+              <a class="btn btn--inverse btn--lg" href="mailto:hello@tidyflow.example">Create your free workspace</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div class="footer__grid">
+          <div>
+            <a class="brand" href="#top"><span class="brand__mark" aria-hidden="true"></span>Tidyflow</a>
+            <p class="muted mt-4">The calm weekly planner for small teams.</p>
+          </div>
+          <div>
+            <h2 class="footer__title">Product</h2>
+            <ul class="footer__links">
+              <li><a href="#features">Features</a></li>
+              <li><a href="#how">How it works</a></li>
+              <li><a href="#pricing">Pricing</a></li>
+            </ul>
+          </div>
+          <div>
+            <h2 class="footer__title">Help</h2>
+            <ul class="footer__links">
+              <li><a href="#faq">FAQ</a></li>
+              <li><a href="mailto:help@tidyflow.example">Email support</a></li>
+            </ul>
+          </div>
+          <div>
+            <h2 class="footer__title">Company</h2>
+            <ul class="footer__links">
+              <li><a href="mailto:hello@tidyflow.example">Contact</a></li>
+              <li><a href="mailto:jobs@tidyflow.example">Careers</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer__bottom">
+          <p>&copy; <span data-year>2026</span> Tidyflow. All rights reserved.</p>
+          <p><a href="#top">Back to top</a></p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
