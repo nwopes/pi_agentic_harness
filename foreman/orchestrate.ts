@@ -63,7 +63,8 @@ export default function orchestrate(pi: ExtensionAPI) {
   };
 
   const describe = (ctx: ExtensionContext) => {
-    const lead = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+    // With no usable model (e.g. no key yet) Pi reports a placeholder "unknown/unknown".
+    const lead = ctx.model && ctx.model.provider !== "unknown" ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
     const query: WorkerModelsQuery = { lead, redirect: {} };
     pi.events.emit(WORKER_MODELS_EVENT, query);
     const { model: redirected, by } = query.redirect;

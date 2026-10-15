@@ -11,7 +11,7 @@ export const LEAD_FILE = join(PACKAGE_DIR, "LEAD.md");
 export const STATE_ENTRY = "foreman-orchestrate";
 /** XML tag around the lead instructions in the system prompt. */
 export const LEAD_TAG = "lead_mode";
-/** Session entry written each time the lead instructions are applied to a run; the compare runner checks for it. */
+/** Session entry written each time the lead instructions are applied to a run: proof in a headless run's JSON log. */
 export const LEAD_APPLIED_ENTRY = "foreman-lead-applied";
 /** Frontmatter line marking worker files this package copied into <agentDir>/agents (safe to overwrite). */
 export const MANAGED_MARK = "managed-by: pi-foreman";

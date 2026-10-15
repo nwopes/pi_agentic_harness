@@ -1,8 +1,8 @@
 {
-  "name": "foreman-mvp",
-  "version": "0.0.0",
+  "name": "pi-foreman",
+  "version": "0.1.0",
   "private": true,
-  "description": "Foreman MVP: compare a lead+workers Pi harness against solo models on the same task, graded by hidden tests.",
+  "description": "Foreman for Pi: a strong lead model plans and delegates to cheaper worker models (/orchestrate, --orchestrate, /team), plus paste-to-save OpenRouter keys.",
   "keywords": [
     "pi-package"
   ],
@@ -30,15 +30,11 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "compare": "tsx scripts/compare.ts",
-    "report": "tsx scripts/report.ts",
-    "screenshots": "tsx scripts/screenshots.ts",
-    "selftest": "tsx scripts/selftest/run.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "check": "node scripts/check.mjs",
+    "typecheck": "node scripts/check.mjs --types-only"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
-    "tsx": "4.23.13",
     "typescript": "5.9.3"
   }
 }

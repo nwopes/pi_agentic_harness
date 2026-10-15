@@ -1,113 +1,94 @@
-# pi_agentic_harness — Foreman MVP
+# Foreman for Pi
 
-Cheap models doing frontier-quality work. A strong **lead** model plans in `BOARD.md` and delegates to cheaper **worker** models (frontend, backend, tests), using [Pi](https://pi.dev) with OpenRouter. This repo is **one Pi package** (Foreman) that adds lead mode to Pi, plus a `compare` runner that runs the same task in several modes, grades every run with hidden acceptance tests, and reports cost and quality from logs only.
+A [Pi](https://pi.dev) package that turns Pi into a small team. A strong **lead** model plans in `BOARD.md` and delegates to cheaper **worker** models (frontend, backend, tests) through OpenRouter, then checks their work itself.
 
-- **Spec:** [`prd_mvp.md`](prd_mvp.md)
-- **Verified facts, deviations and the live-run log:** [`NOTES.md`](NOTES.md). Read this before changing any Pi flag.
-- **Demo talk track:** [`demo/SCRIPT.md`](demo/SCRIPT.md)
+- **Verified Pi facts and design notes:** [`NOTES.md`](NOTES.md). Read this before changing a Pi flag or hook.
+- **Status:** delegation was verified live with a Haiku lead (`--orchestrate`): the backend ran on MiniMax M3 and the frontend on Kimi K2.7 Code, according to OpenRouter's generation records, for about half a cent. Everything else is covered by offline tests (`npm run check`). Not yet verified live: an Opus lead (it needs more OpenRouter credit) and the interactive TUI.
+- The earlier MVP benchmark (compare runner, habit-tracker task with hidden tests, demo script, PRD) is preserved at git tag [`mvp-benchmark`](https://github.com/nwopes/pi_agentic_harness/tree/mvp-benchmark).
 
-## Status
-
-| Milestone | State |
-|---|---|
-| 0: orchestration | Verified live through the Foreman package (`harness-lite`, Haiku lead, `--orchestrate`): backend ran on MiniMax M3 and frontend on Kimi K2.7 Code (OpenRouter generation records), for $0.0051. **Open:** the same check with the Opus lead (needs more OpenRouter credit), and the interactive TUI run. |
-| 1: task and hidden tests | `demo-tasks/habit-tracker`: reference implementation 20/20 (since deleted), empty fixture 0/20, stable across repeated grading. |
-| 2: compare runner | Built; the stub self-test passes. **No live comparison has been run yet.** |
-| 3: quality boosters | Not started; only needed if Milestone 2 shows a quality gap. |
-
-## The Foreman Pi package
+## What it adds to Pi
 
 | | What it does |
 |---|---|
 | `/orchestrate [on\|off]` | Toggles lead mode in the current session (no argument flips it). **On:** the lead instructions ([`foreman/LEAD.md`](foreman/LEAD.md)) are added to the system prompt and the `subagent` tool is active. **Off:** both are gone, and Pi works alone. The setting is saved in the session, so resuming keeps it. |
-| `--orchestrate` | Starts Pi with lead mode on. Used for headless runs and by the compare runner, so the demo and the measured runs share one setup. |
+| `--orchestrate` | Starts Pi with lead mode on, e.g. for headless `--mode json` runs. |
 | `/team` | Shows the lead's model (this session's model), each worker's model, whether lead mode is on, and where the OpenRouter key comes from. |
-| **Paste your OpenRouter key** | Paste the key (`sk-or-v1-…`) into Pi's prompt and send it. Pi saves it and **never sends it to a model**: the message stops at the extension, whichever model is selected. The key goes into `<agentDir>/auth.json` through Pi's own credential store, the same place `/login openrouter` writes. The lead and every worker use it from then on, with no environment variable needed. Pi checks it with OpenRouter's free key-info call first and refuses one that OpenRouter rejects. `/logout` removes it. |
+| **Paste your OpenRouter key** | Paste the key (`sk-or-v1-…`) into Pi's prompt and send it. Pi saves it and **never sends it to a model**: the message stops at the extension, whichever model is selected. The key goes into `<agentDir>/auth.json` through Pi's own credential store, the same place `/login openrouter` writes. The lead and every worker use it from then on, with no environment variable needed. Pi checks it with OpenRouter's key-info call first and refuses one that OpenRouter rejects. `/logout` removes it. |
 
 Workers are defined in [`foreman/agents/`](foreman/agents/) (`frontend`, `backend`, `tests`, each with `model:` in its frontmatter). Delegation uses [`@mjakl/pi-subagent`](https://www.npmjs.com/package/@mjakl/pi-subagent) 3.1.0, declared as a normal npm dependency. Depth is capped at 1, so workers can't delegate further.
 
-### Install
+## Install
 
-Pi 1.2 syntax, from Pi's `docs/packages.md`. Every form below was tested with Pi 1.2.0; the git forms were tested against this GitHub repo at commit 913c3d1.
+Pi 1.2 syntax, from Pi's `docs/packages.md`. Every form was tested with Pi 1.2.0.
 
 ```bash
-# from a local path (absolute, or relative to where you run it). Pi does not install dependencies for local
-# packages, so run `npm ci` in the repo first.
-pi install C:/path/to/pi_agentic_harness
-pi install ./                         # from inside the repo
-
-# from git. Pi clones the repo and runs `npm install --omit=dev`, which fetches @mjakl/pi-subagent.
-pi install git:github.com/nwopes/pi_agentic_harness
+pi install git:github.com/nwopes/pi_agentic_harness                  # Pi clones it and runs `npm install --omit=dev`
 pi install git:github.com/nwopes/pi_agentic_harness@<tag-or-commit>   # pinned
-pi install https://github.com/nwopes/pi_agentic_harness              # same thing
+pi install https://github.com/nwopes/pi_agentic_harness              # same as the first
 
-pi -e C:/path/to/pi_agentic_harness   # one session only, without installing
+pi install C:/path/to/pi_agentic_harness   # local path; Pi doesn't install deps for these, so `npm ci` in the repo first
+pi -e C:/path/to/pi_agentic_harness        # one session only, without installing
+
+pi update git:github.com/nwopes/pi_agentic_harness   # pull the latest (plain `pi update` updates Pi itself)
+pi remove git:github.com/nwopes/pi_agentic_harness
 ```
 
-`pi remove <same source>` uninstalls it. Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` is the package manifest. It loads exactly four files, in this order: `foreman/orchestrate.ts` → `@mjakl/pi-subagent` → `foreman/prompt.ts` → `foreman/keys.ts`. Nothing else in the repo (for example `extensions/freellmapi`) is loaded.
+Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` is the package manifest. It loads exactly four files, in this order: `foreman/orchestrate.ts` → `@mjakl/pi-subagent` → `foreman/prompt.ts` → `foreman/keys.ts`. `extensions/freellmapi` is not part of it.
 
 ### Good to know
 
 - **Don't also install `@mjakl/pi-subagent` separately** in the same agent dir. Two copies both register `subagent`, and Pi refuses to start.
 - **Workers are copied into `<agentDir>/agents/`** at startup. `@mjakl/pi-subagent` only looks there, and has no hook for other packages. The copies carry a `managed-by: pi-foreman` line and are refreshed on every start. A file of the same name *without* that line is yours: it is never overwritten, it overrides that worker, and `/team` says so.
-- **`--orchestrate` placement:** don't put a prompt right after it (`pi --orchestrate "task"`). Pi would read the prompt as the flag's value. Put the flag before another option or after the prompt, or pipe the prompt on stdin, as the runner does.
+- **`--orchestrate` placement:** don't put a prompt right after it (`pi --orchestrate "task"`). Pi would read the prompt as the flag's value. Put the flag before another option or after the prompt, or pipe the prompt on stdin.
 - `--orchestrate=false` still turns lead mode **on**; leave the flag out instead.
-- **Windows:** if `pi install git:…` fails with `fetch-pack: invalid index-pack output`, the agent dir's path is too long for git; the 260-character limit applies while `core.longpaths` is off. Use a shorter agent dir or run `git config --global core.longpaths true`. The default `~/.pi/agent` is fine.
+- **A saved key beats `OPENROUTER_API_KEY`.** Tested: with both present, Pi sends the saved one, and `/team` says so.
+- **OpenRouter reserves `max_tokens × output price` before every request** and refuses it (402) if your balance can't cover that. Uncapped worker models can need more than a dollar of headroom per request. The `pi-config/dev` profile below caps outputs at 16k tokens, which brings that down to cents.
 - Pi's own footer and `/session` cost **exclude** worker spend (see NOTES.md).
-- **A saved key beats `OPENROUTER_API_KEY`.** Tested: with both present, Pi sends the saved one, and `/team` says so. The compare runner therefore refuses a profile whose `auth.json` holds a different OpenRouter key than the one it measures.
+- **Windows:** if `pi install git:…` fails with `fetch-pack: invalid index-pack output`, the agent dir's path is too long for git; the 260-character limit applies while `core.longpaths` is off. Use a shorter agent dir or run `git config --global core.longpaths true`. The default `~/.pi/agent` is fine.
 
-## Modes (Pi config profiles in `pi-config/`)
+## Free models through FreeLLMAPI (optional, separate extension)
 
-| Mode | Lead / solo model | Workers | Setup | Use |
-|---|---|---|---|---|
-| `harness` | `anthropic/claude-opus-5.5` | frontend `moonshotai/kimi-k2.7-code`, backend `minimax/minimax-m3`, tests `anthropic/claude-haiku-5.5` | Foreman package + `--orchestrate` | measurement |
-| `strong-solo` | `anthropic/claude-opus-5.5` | none | neutral `AGENTS.md`, no package | measurement baseline |
-| `cheap-solo` | `moonshotai/kimi-k2.7-code` | none | neutral `AGENTS.md`, no package | measurement baseline |
-| `harness-lite` | `anthropic/claude-haiku-5.5`, all outputs capped at 16k tokens | same as `harness` | Foreman package + `--orchestrate` | cheap rehearsals (cents) |
-| `harness-free` | FreeLLMAPI `auto:smart` | FreeLLMAPI `auto:smart` / `auto:fast` | — | **incomplete, not part of the comparison**; see NOTES.md |
-
-The `harness` profiles load the package with `"packages": ["../.."]` (the repo root) in their `settings.json`. The runner checks every harness run's own event log for proof that lead mode was really on (a `foreman-lead-applied` entry and an active `subagent` tool). A run without that proof is flagged `LEAD_MODE_MISSING` and excluded as a setup failure to re-run.
-
-### Free models through FreeLLMAPI (optional, separate)
-
-[`extensions/freellmapi`](extensions/freellmapi/README.md) adds a `/login-with-freellm` command. It is a separate extension, not part of the Foreman package, and never used in the comparison.
+[`extensions/freellmapi`](extensions/freellmapi/README.md) adds `/login-with-freellm`, which connects Pi to a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) router. Install it on its own: `pi install <repo>/extensions/freellmapi`.
 
 **On FreeLLMAPI, OpenRouter is not used.** Pi sends a provider's key only to that provider, so the lead never sends your OpenRouter key to FreeLLMAPI. With both installed, while the session's model is a `freellmapi/…` model, the extension also moves every worker call onto that same model. Foreman's workers are otherwise pinned to OpenRouter, so this keeps lead mode free. `/team` shows the switch. Tested offline: a real worker process went to FreeLLMAPI, and zero requests reached OpenRouter.
 
-## Setup (Windows, Git Bash)
+## Develop
 
-Pi 1.2.0 needs Node 22.19 or newer. It runs on an fnm-installed Node 22.23.3, so the system Node is untouched. The full commands are in NOTES.md under "Setup command".
-
-```bash
-npm ci                                  # runner deps + @mjakl/pi-subagent (the package's dependency)
-cp .env.example .env                    # then set OPENROUTER_API_KEY (Pi does not read .env; the runner does)
-```
-
-The `harness` profiles need nothing else: their `settings.json` already points at this repo.
-
-OpenRouter reserves `max_tokens × output price` before every request. Opus requests need about $3 of headroom on both the account balance and the key limit. The runner checks this before each run (`minHeadroomUsd`, default $5).
-
-## Commands
+Pi 1.2 needs Node 22.19 or newer (here: an fnm-installed Node 22.23.3; the system Node can stay older).
 
 ```bash
-npm run selftest                        # whole pipeline with a stub Pi, $0
-npm run compare -- --task habit-tracker --modes harness,strong-solo,cheap-solo --runs 2
-npm run report -- --task habit-tracker  # rebuild results/ from runs/ logs only
-bash demo-tasks/habit-tracker/grade.sh <workspace> <out.json>
-node foreman/test/rpc-orchestrate-test.mjs <pi-node> <pi-cli>   # package behaviour incl. resume (11 checks), offline, $0
-node foreman/test/rpc-keys-test.mjs <pi-node> <pi-cli>          # pasted OpenRouter key: saved, never sent (11 checks), offline
-node extensions/freellmapi/test/rpc-workers-test.mjs <pi-node> <pi-cli>   # FreeLLMAPI lead -> workers stay off OpenRouter (8 checks)
+npm ci              # @mjakl/pi-subagent (the package's dependency) + TypeScript for the typecheck
+npm run check       # typecheck against the installed Pi's types, then every offline test ($0, no network)
+npm run typecheck   # typecheck only
 ```
+
+`npm run check` finds Pi via `PI_CLI` (and optionally `PI_NODE`), then `pi` on PATH, then an fnm-installed Node. Pi is deliberately **not** a dependency: Pi's docs say a physical copy can bypass its extension module mapping. The tests:
+
+| Test | Checks |
+|---|---|
+| `foreman/test/rpc-orchestrate-test.mjs` | Lead mode off by default, `/orchestrate` on/off, `/team`, `--orchestrate`, workers never lead, depth 1, resume keeps the toggle (11) |
+| `foreman/test/rpc-keys-test.mjs` | A pasted key is saved and never sent, is used at once and by new processes, and wins over the env var (11) |
+| `extensions/freellmapi/test/rpc-workers-test.mjs` | FreeLLMAPI lead → a real worker process goes to FreeLLMAPI, zero OpenRouter requests; control run (8) |
+| `extensions/freellmapi/test/rpc-login-test.mjs` | The `/login-with-freellm` flows against a mock FreeLLMAPI (3) |
+
+Each test drives Pi over RPC against local stand-ins and checks what Pi actually sends.
+
+**Run the package from the repo without installing it:** `pi-config/dev` is a Pi agent dir that loads this repo (`"packages": ["../.."]`), defaults to a Haiku lead, and caps every model's output at 16k tokens:
+
+```bash
+PI_CODING_AGENT_DIR=<repo>/pi-config/dev pi --no-skills --orchestrate
+```
+
+Paste your OpenRouter key into that session once; it is saved in `pi-config/dev/auth.json`, which is gitignored like all of Pi's runtime state there.
 
 ## Layout
 
 ```
-package.json    runner scripts AND the Pi package manifest ("pi" field, dependencies)
-foreman/        the Pi package: orchestrate.ts, prompt.ts, keys.ts, shared.ts, LEAD.md, agents/*.md, test/
-pi-config/      Pi agent dirs, one per mode (settings.json, models.json, neutral AGENTS.md for solo)
-demo-tasks/     habit-tracker (SPEC.md, fixture/, hidden-tests/, grade.sh) and quick (live-demo task)
-scripts/        compare.ts, report.ts, screenshots.ts, lib/, selftest/
-extensions/     optional extras outside the package (freellmapi)
-results/        generated report.md, results.json, index.html (committed)
-runs/           generated per-run logs (gitignored)
+package.json          Pi package manifest ("pi" field, dependencies) and the dev scripts
+foreman/              the package: orchestrate.ts (/orchestrate, --orchestrate, /team), prompt.ts (lead prompt),
+                      keys.ts (paste-to-save key), shared.ts, LEAD.md, agents/*.md, test/
+extensions/freellmapi/  optional FreeLLMAPI provider + /login-with-freellm, with its tests and mock server
+pi-config/dev/        agent dir for running the package from the repo (16k output caps)
+scripts/check.mjs     typecheck + all offline tests
+NOTES.md              verified Pi facts, design decisions, what is and isn't verified
 ```
