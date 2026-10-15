@@ -186,6 +186,14 @@ async function chooseServer(ctx: ExtensionCommandContext, saved?: SavedConfig): 
   const candidates = [...new Set([saved?.baseUrl, ...CANDIDATE_ROOTS].filter((u): u is string => !!u))];
   const found = (await Promise.all(candidates.map(async (u) => ((await probe(u)) ? u : undefined)))).filter((u): u is string => !!u);
   if (!ctx.hasUI) return found[0];
+  if (!found.length) {
+    ctx.ui.notify(
+      "FreeLLMAPI doesn't seem to be running (nothing answered on 127.0.0.1:31415, :3901 or :3001). " +
+        "Start the FreeLLMAPI desktop app (https://github.com/tashfeenahmed/freellmapi/releases), or a server install with PORT=3901, " +
+        "add at least one provider key in its dashboard, then run /login-with-freellm again. Or enter its URL below.",
+      "warning",
+    );
+  }
   const other = "Enter another URL…";
   const choice = found.length
     ? await ctx.ui.select("FreeLLMAPI server", [...found.map((u) => `${u}  (running)`), other])

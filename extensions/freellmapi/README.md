@@ -30,6 +30,11 @@ Other forms:
 
 Models: whatever `/v1/models` lists (`auto`, `auto:<profile>`, catalog ids), plus `auto:smart` and `auto:fast`. The router accepts those two but doesn't list them. All are registered as zero-cost, text-only and non-reasoning, with max output `min(8192, context)`, matching FreeLLMAPI's own `setup-pi` generator.
 
+## Troubleshooting
+
+- **"Error: No API key found for the selected model" right after typing `/login-with-freellm`:** the extension isn't loaded, so Pi sent your text to the model as a chat message. Pi's startup header lists loaded extensions under `[Extensions]`; if that section is missing, start Pi with `-e <repo>/extensions/freellmapi` or `pi install` it. In PowerShell, run the launcher as `& "<path>\pi.cmd" ...`. In cmd.exe, drop the `&`.
+- **"FreeLLMAPI doesn't seem to be running":** start the desktop app, or a server install with `PORT=3901`, and add at least one provider key in its dashboard first.
+
 ## Good to know
 
 - **Non-interactive Pi needs a usable model to start.** In print, JSON and RPC mode, Pi exits before running any command if no provider has credentials (`dist/main.js:755`). The very first login therefore has to happen in the interactive TUI, or you pass `FREELLMAPI_API_KEY`. Interactive Pi starts without one.
