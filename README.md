@@ -90,7 +90,7 @@ npm run selftest                        # whole pipeline with a stub Pi, $0
 npm run compare -- --task habit-tracker --modes harness,strong-solo,cheap-solo --runs 2
 npm run report -- --task habit-tracker  # rebuild results/ from runs/ logs only
 bash demo-tasks/habit-tracker/grade.sh <workspace> <out.json>
-node foreman/test/rpc-orchestrate-test.mjs <pi-node> <pi-cli>   # package behaviour, offline, $0
+node foreman/test/rpc-orchestrate-test.mjs <pi-node> <pi-cli>   # package behaviour incl. resume (11 checks), offline, $0
 ```
 
 ## Layout

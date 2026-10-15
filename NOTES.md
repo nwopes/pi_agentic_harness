@@ -58,7 +58,8 @@ This **supersedes** the hand-built harness described further down ("Harness prom
     - `foreman/test/rpc-orchestrate-test.mjs` run from the git-installed copy: 8/8.
     - `pi remove git:github.com/nwopes/pi_agentic_harness` left `packages: []`.
   - **Windows gotcha:** the first attempt used a 186-character agent-dir path and failed in Pi's `git clone` with `fatal: fetch-pack: invalid index-pack output` (code 128). git's pack files push the path past 260 characters while `core.longpaths` is unset. A plain clone to a short path worked. The normal `~/.pi/agent/git/...` path is about 75 characters. Fix: a shorter agent dir, or `git config --global core.longpaths true`.
-  - **Not yet verified:** resume restoring the `/orchestrate` state. It follows Pi's plan-mode example but was not run.
+  - **Resume, 2026-10-15:** now part of `rpc-orchestrate-test.mjs`, 11/11. A persisted session with `/orchestrate on`, reopened with `--continue` and no flag, is still in lead mode. `/orchestrate off` there turns it off, and a second `--continue` stays off.
+  - Precedence, as in Pi's plan-mode example: a toggle saved in the session wins over `--orchestrate` when resuming. Fresh sessions, including every compare run, take the flag.
 
 ## Milestone 0, configuration part: status (2026-10-15)
 

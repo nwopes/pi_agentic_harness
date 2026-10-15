@@ -46,10 +46,14 @@ function newAgentDir() {
   return dir;
 }
 
-/** Run one Pi RPC session: send `steps` in order; a step is a slash command or a prompt (waits for the run to end). */
-function session(steps, { args = [], env = {} } = {}) {
-  const agentDir = newAgentDir();
-  const child = spawn(piNode, [piCli, "--mode", "rpc", "--model", "openrouter/anthropic/claude-haiku-5.5", "--no-skills", "--no-session", ...args], {
+/**
+ * Run one Pi RPC session: send `steps` in order; a step is a slash command or a prompt (waits for the run to end).
+ * `persist` keeps the session on disk (instead of --no-session) and reuses `agentDir`, so a later call can --continue it.
+ */
+function session(steps, { args = [], env = {}, agentDir: reuse, persist = false } = {}) {
+  const agentDir = reuse ?? newAgentDir();
+  const sessionArgs = persist ? ["--session-dir", join(agentDir, "sessions")] : ["--no-session"];
+  const child = spawn(piNode, [piCli, "--mode", "rpc", "--model", "openrouter/anthropic/claude-haiku-5.5", "--no-skills", ...sessionArgs, ...args], {
     cwd: agentDir,
     env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0", OPENROUTER_API_KEY: "sk-or-offline-test", ...env },
     stdio: ["pipe", "pipe", "pipe"],
@@ -79,7 +83,7 @@ function session(steps, { args = [], env = {} } = {}) {
     child.on("exit", (code) => {
       out.exitCode = code;
       try { out.agents = readdirSync(join(agentDir, "agents")); } catch {}
-      rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      if (!persist) rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       resolveSession(out);
     });
     (async () => {
@@ -131,6 +135,16 @@ check(s.seen[0] && !hasLead(s.seen[0]) && !hasTool(s.seen[0]) && !/Unknown optio
 // 5. depth cap: the lead's agent list reports max depth 1 (workers can't delegate)
 s = await session(["x"], { args: ["--orchestrate"] });
 check(/max depth 1/.test(s.seen[0]?.system ?? ""), "delegation capped at depth 1 without --subagent-max-depth", (/- Max depth:[^\n]*/.exec(s.seen[0]?.system ?? "") ?? ["(no depth line)"])[0]);
+
+// 6. The toggle is saved in the session: resuming (--continue) restores it, in both directions, without the flag.
+const kept = newAgentDir();
+await session(["/orchestrate on", "first"], { agentDir: kept, persist: true });
+s = await session(["after resume", "/orchestrate off", "now off"], { agentDir: kept, persist: true, args: ["--continue"] });
+check(hasLead(s.seen[0]) && hasTool(s.seen[0]), "resumed session keeps lead mode ON (saved by /orchestrate, no flag given)", describe(s.seen[0]));
+check(s.seen[1] && !hasLead(s.seen[1]) && !hasTool(s.seen[1]), "…then /orchestrate off in the resumed session turns it off", describe(s.seen[1]));
+s = await session(["resumed again"], { agentDir: kept, persist: true, args: ["--continue"] });
+check(s.seen[0] && !hasLead(s.seen[0]) && !hasTool(s.seen[0]), "resumed again: stays OFF (the later saved toggle wins)", describe(s.seen[0]));
+rmSync(kept, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 
 server.close();
 const failed = results.filter((r) => !r).length;
