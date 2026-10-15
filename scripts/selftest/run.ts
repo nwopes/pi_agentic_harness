@@ -10,6 +10,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { analyzeRun } from "../lib/analyze.ts";
 import { _internal as contaminationInternal } from "../lib/contamination.ts";
 import { loadConfig } from "../lib/config.ts";
 import { budgetProblems, isBillingError, servedMatches, settleKeyUsage } from "../lib/openrouter.ts";
@@ -43,17 +44,24 @@ if (exists(path.join(runsRoot, TASK)) || exists(path.join(resultsRoot, TASK))) {
   process.exit(2);
 }
 
-// --- scratch Pi config dirs mirroring pi-config/ (harness: LEAD.md + agents/*.md, no AGENTS.md)
+// --- scratch Pi config dirs mirroring pi-config/ (harness: settings.json loading the Foreman package, whose
+// worker definitions live in the package's agents/ dir; solo: neutral AGENTS.md)
 const base = loadConfig();
 const piCfg = path.join(scratch, "pi-config");
-fs.mkdirSync(path.join(piCfg, "harness", "agents"), { recursive: true });
+const pkgAgents = path.join(scratch, "foreman", "agents");
+fs.mkdirSync(pkgAgents, { recursive: true });
+fs.mkdirSync(path.join(piCfg, "harness"), { recursive: true });
 fs.mkdirSync(path.join(piCfg, "strong-solo"), { recursive: true });
-fs.writeFileSync(path.join(piCfg, "harness", "LEAD.md"), "# You are the LEAD (stub)\n");
+fs.writeFileSync(path.join(piCfg, "harness", "settings.json"), JSON.stringify({ packages: ["../../foreman"] }));
 fs.writeFileSync(path.join(piCfg, "strong-solo", "AGENTS.md"), "Implement the user's request completely.\n");
 const workers: Record<string, string> = { frontend: "moonshotai/kimi-k2.7-code", backend: "minimax/minimax-m3", tests: "anthropic/claude-haiku-5.5" };
 for (const [name, model] of Object.entries(workers)) {
-  fs.writeFileSync(path.join(piCfg, "harness", "agents", `${name}.md`), `---\nname: ${name}\ndescription: stub ${name} worker\nmodel: openrouter/${model}\n---\nYou are the ${name} worker.\n`);
+  fs.writeFileSync(path.join(pkgAgents, `${name}.md`), `---\nname: ${name}\ndescription: stub ${name} worker\nmodel: openrouter/${model}\n---\nYou are the ${name} worker.\n`);
 }
+// A profile whose agents/ holds a hand-written worker file (not a managed copy): preflight must refuse it.
+fs.mkdirSync(path.join(piCfg, "harness-rogue", "agents"), { recursive: true });
+fs.writeFileSync(path.join(piCfg, "harness-rogue", "settings.json"), JSON.stringify({ packages: ["../../foreman"] }));
+fs.writeFileSync(path.join(piCfg, "harness-rogue", "agents", "frontend.md"), "---\nname: frontend\ndescription: hand-written\nmodel: openrouter/some/other-model\n---\nx\n");
 const mkConfig = (file: string, overrides: Record<string, any> = {}) => {
   writeJson(file, {
     ...base,
@@ -62,7 +70,7 @@ const mkConfig = (file: string, overrides: Record<string, any> = {}) => {
     timeoutMinutes: 0.25,
     keyUsagePolling: { initialDelayMs: 0, intervalMs: 200, stableReads: 2, maxWaitMs: 2000 },
     modes: {
-      harness: { ...base.modes.harness, piConfigDir: path.join(piCfg, "harness"), workerAgentsDir: path.join(piCfg, "harness", "agents"), requiredFiles: ["LEAD.md"] },
+      harness: { ...base.modes.harness, piConfigDir: path.join(piCfg, overrides.harnessDir ?? "harness"), workerAgentsDir: pkgAgents, requiredFiles: ["settings.json"] },
       "strong-solo": { ...base.modes["strong-solo"], piConfigDir: path.join(piCfg, "strong-solo"), ...(overrides.strongSolo ?? {}) },
     },
   });
@@ -70,6 +78,7 @@ const mkConfig = (file: string, overrides: Record<string, any> = {}) => {
 };
 const cfgPath = mkConfig(path.join(scratch, "foreman.selftest.json"));
 const badCfgPath = mkConfig(path.join(scratch, "foreman.selftest.bad.json"), { strongSolo: { requiredHelpFlags: ["--subagent-max-depth"] } });
+const rogueCfgPath = mkConfig(path.join(scratch, "foreman.selftest.rogue.json"), { harnessDir: "harness-rogue" });
 const pidFile = path.join(scratch, "grandchild.pid");
 
 const common = (cfg: string) => ["--config", cfg, "--task", TASK, "--task-dir", path.join(here, "task"), "--runs-dir", runsRoot, "--results-dir", resultsRoot, "--workdir", workdir, "--dotenv", path.join(scratch, "no.env")];
@@ -113,6 +122,29 @@ try {
   check(snap2.stable && snap2.usage === 0.01 && snap2.staleReads === 1, "key usage: reads below the previous snapshot (floor) are never accepted");
   check(servedMatches("minimax/minimax-m3", "minimax/minimax-m3-20260531") && !servedMatches("moonshotai/kimi-k2.7", "moonshotai/kimi-k2.7-code-20260612"), "served-model match allows dated suffixes only");
 
+  // Lead-mode evidence in both directions, on synthetic run dirs (analyzeRun reads only the files a run left).
+  const synth = (mode: string, invocation: string, evidence: boolean) => {
+    const dir = path.join(scratch, "synthetic", mode);
+    fs.mkdirSync(dir, { recursive: true });
+    writeJson(path.join(dir, "meta.json"), { mode, run: 1, status: "ok", pi: { invocation }, models: { lead: "anthropic/claude-opus-5.5", workers: {} } });
+    const events = [
+      { type: "session", version: 3, id: "s", cwd: dir },
+      { type: "message_end", message: { role: "system", content: "x", toolsAdded: [{ name: "read" }, ...(evidence ? [{ name: "subagent" }] : [])] } },
+      ...(evidence ? [{ type: "entry_appended", entry: { type: "custom", customType: "foreman-lead-applied", data: { leadSha256: "abc" } } }] : []),
+      { type: "message_end", message: { role: "assistant", content: [], provider: "openrouter", model: "anthropic/claude-opus-5.5", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } }, stopReason: "stop" } },
+      { type: "agent_end", messages: [] },
+    ];
+    fs.writeFileSync(path.join(dir, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    return dir;
+  };
+  const analyzeOpts = { repoRoot: REPO_ROOT, threshold: 0.15, harnessMode: "harness" };
+  const noLead = await analyzeRun(synth("harness", "pi --mode json --orchestrate --no-skills", false), analyzeOpts);
+  check(noLead.failed && noLead.flags.includes("LEAD_MODE_MISSING") && /lead mode was not active/.test(noLead.failureReason ?? ""), "started with --orchestrate but no lead-mode evidence -> LEAD_MODE_MISSING, excluded with a re-run reason");
+  const leaked = await analyzeRun(synth("strong-solo", "pi --mode json --no-skills", true), analyzeOpts);
+  check(leaked.failed && leaked.flags.includes("LEAD_MODE_UNEXPECTED"), "solo run that shows lead mode -> LEAD_MODE_UNEXPECTED, excluded");
+  const withLead = await analyzeRun(synth("harness-lite", "pi --mode json --orchestrate", true), analyzeOpts);
+  check(!withLead.flags.some((f) => f.startsWith("LEAD_MODE")) && withLead.leadMode.leadSha256 === "abc", "lead-mode evidence present -> no LEAD_MODE flag, LEAD.md hash recorded");
+
   // 1. Missing key without --no-key-cost must fail fast, before creating anything.
   const a = run("compare.ts", [...common(cfgPath), "--modes", "harness,strong-solo", "--runs", "1"], envNoKey);
   check(a.status === 2, `missing OPENROUTER_API_KEY -> exit 2 (got ${a.status})`);
@@ -123,6 +155,8 @@ try {
   // 2. Preflight: a mode whose required extension flag is missing from `pi --help` must abort.
   const pf = run("compare.ts", [...common(badCfgPath), "--modes", "strong-solo", "--runs", "1", "--no-key-cost"], envNoKey);
   check(pf.status === 2 && /does not list --subagent-max-depth/.test(pf.stderr), "preflight: missing extension flag in `pi --help` -> abort before any run");
+  const rg = run("compare.ts", [...common(rogueCfgPath), "--modes", "harness", "--runs", "1", "--no-key-cost", "--dry-run"], envNoKey);
+  check(rg.status === 2 && /not managed by the foreman package/.test(rg.stderr), "preflight: a hand-written worker file in an --orchestrate profile's agents/ -> abort (it would replace a package worker's model)");
 
   // 2b. Pi >= 0.75 on a Node < 22.19 must abort (only testable when the runner's own Node is older).
   const [maj, min] = process.versions.node.split(".").map(Number);
@@ -135,8 +169,8 @@ try {
   const d = run("compare.ts", [...common(cfgPath), "--modes", "harness,strong-solo", "--runs", "1", "--no-key-cost", "--dry-run"], envNoKey);
   check(
     d.status === 0 &&
-      /dry-run harness: PI_OFFLINE=1 PI_TELEMETRY=0 PI_CODING_AGENT_DIR=\S+ pi --mode json --model openrouter\/anthropic\/claude-opus-5\.5 --append-system-prompt \S+LEAD\.md --subagent-max-depth 1 --no-skills --no-approve --session-dir \S+ < SPEC\.md/.test(d.stdout),
-    "--dry-run prints the harness invocation from NOTES.md",
+      /dry-run harness: PI_OFFLINE=1 PI_TELEMETRY=0 PI_CODING_AGENT_DIR=\S+ pi --mode json --model openrouter\/anthropic\/claude-opus-5\.5 --orchestrate --no-skills --no-approve --session-dir \S+ < SPEC\.md/.test(d.stdout),
+    "--dry-run prints the harness invocation (Foreman package via --orchestrate)",
   );
   check(/dry-run strong-solo: .*--model openrouter\/anthropic\/claude-opus-5\.5 --no-skills --no-approve --session-dir/.test(d.stdout), "--dry-run prints the solo invocation (no harness-only flags)");
   check(!exists(path.join(runsRoot, TASK)), "--dry-run creates no run directories");
@@ -183,7 +217,9 @@ try {
   const byId = Object.fromEntries(res.runs.map((r: any) => [r.runId, r]));
   check(res.runs.length === 5, `results.json has all 5 runs (got ${res.runs.length})`);
   const m1 = readJson(path.join(taskRuns, "harness-1", "meta.json"));
-  check(m1.status === "ok" && /--append-system-prompt .*LEAD\.md --subagent-max-depth 1 --no-skills --no-approve/.test(m1.pi.invocation), "harness-1: status ok with the NOTES.md invocation recorded in meta.json");
+  check(m1.status === "ok" && /--orchestrate --no-skills --no-approve/.test(m1.pi.invocation), "harness-1: status ok with the --orchestrate invocation recorded in meta.json");
+  check(byId["harness-1"]?.leadMode?.expected && byId["harness-1"].leadMode.applied && byId["harness-1"].leadMode.subagentTool, "harness-1: lead mode verified from the run's own events (foreman-lead-applied entry + subagent tool)");
+  check(res.runs.every((r: any) => !r.flags.some((f: string) => f.startsWith("LEAD_MODE"))) && byId["strong-solo-1"]?.leadMode?.expected === false && !byId["strong-solo-1"].leadMode.applied, "no LEAD_MODE_* flags on correctly configured runs; solo runs show no lead mode");
   check(JSON.stringify(byId["harness-1"]?.flags) === JSON.stringify(["NO_KEY_COST"]), `clean @mjakl-shaped harness run carries no other flag (${byId["harness-1"]?.flags.join(" ")})`);
   check(byId["harness-1"]?.delegation.package === "@mjakl/pi-subagent" && byId["harness-1"].delegation.workerResults === 3, "@mjakl/pi-subagent details parsed: 3 worker results (heartbeats and toolResult copy not double counted)");
   check(byId["strong-solo-2"]?.status === "timeout" && byId["strong-solo-2"].flags.includes("TIMEOUT") && !byId["strong-solo-2"].failed, "timed-out run is kept, flagged TIMEOUT, and scored (not 'failed')");

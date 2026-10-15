@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { checkToolCalls, type ContaminationResult } from "./contamination.ts";
 import { normalizeModelId } from "./config.ts";
+import { forEachJsonLine } from "./jsonl.ts";
 import { isBillingError, servedMatches, type PriceSnapshot } from "./openrouter.ts";
 import { parseRunUsage, toolCallsFromSessionFile, type ToolCall, type UsageReport } from "./usage.ts";
 import { exists, isInside, readJsonIfExists, round } from "./util.ts";
@@ -65,6 +66,8 @@ export interface RunRecord {
     workerServed: Record<string, string[]>;
   };
   delegation: { package: string | null; calls: number; incomplete: number; workerResults: number };
+  /** Foreman lead mode: expected (run started with --orchestrate) vs what the run's events show. */
+  leadMode: { expected: boolean; applied: boolean; subagentTool: boolean; leadSha256: string | null };
   flags: string[];
   contamination: ContaminationResult;
   diffstat: string | null;
@@ -100,6 +103,26 @@ function listJsonl(dir: string): string[] {
   };
   walk(dir);
   return out.sort();
+}
+
+/**
+ * Foreman lead mode as the run's own events record it. Pi's JSON log shows the base system prompt, not extension
+ * edits, so foreman/prompt.ts writes a `foreman-lead-applied` entry (with the LEAD.md hash) whenever it applies the
+ * lead instructions; the system message's declared tools show whether `subagent` was active.
+ */
+async function leadModeEvidence(eventsFile: string): Promise<{ applied: boolean; subagentTool: boolean; leadSha256: string | null }> {
+  const ev = { applied: false, subagentTool: false, leadSha256: null as string | null };
+  if (!exists(eventsFile)) return ev;
+  await forEachJsonLine(eventsFile, (e) => {
+    if (e?.type === "entry_appended" && e.entry?.customType === "foreman-lead-applied") {
+      ev.applied = true;
+      ev.leadSha256 ??= typeof e.entry.data?.leadSha256 === "string" ? e.entry.data.leadSha256 : null;
+    }
+    if (e?.type === "message_end" && e.message?.role === "system" && Array.isArray(e.message.toolsAdded) && e.message.toolsAdded.some((t: any) => t?.name === "subagent")) {
+      ev.subagentTool = true;
+    }
+  });
+  return ev;
 }
 
 export async function analyzeRun(
@@ -162,14 +185,26 @@ export async function analyzeRun(
   const lastStop = usage?.agent.lastStopReason;
   if (status === "ok" && lastStop && ["error", "aborted", "length"].includes(lastStop)) status = "agent_error";
   const errorMessage: string | null = meta.agentErrorMessage ?? (usage?.agent.lastErrorMessage ? String(usage.agent.lastErrorMessage).slice(0, 500) : null);
+
+  // --- Foreman lead mode: a run started with --orchestrate must show it really ran in lead mode, and a solo run
+  // must not. Otherwise the run measured a different configuration than its mode name claims.
+  const leadMode = { expected: /(^|\s)--orchestrate(\s|=|$)/.test(String(meta.pi?.invocation ?? "")), ...(await leadModeEvidence(eventsFile)) };
+  const leadMismatch = usage !== null && (leadMode.expected ? !(leadMode.applied && leadMode.subagentTool) : leadMode.applied || leadMode.subagentTool);
+  if (leadMismatch) flags.push(leadMode.expected ? "LEAD_MODE_MISSING" : "LEAD_MODE_UNEXPECTED");
+
   // Only exclude runs that measured nothing about the mode. A model that overflows its context or cuts off its
   // own output (agent_error) or crashes Pi (nonzero_exit) keeps its graded score, so failures can't flatter a mode.
   const failed =
     ["spawn_error", "setup_failed", "runner_error", "unknown", "running"].includes(status) ||
-    (status === "agent_error" && isBillingError(errorMessage));
+    (status === "agent_error" && isBillingError(errorMessage)) ||
+    leadMismatch;
   const failureReason = !failed
     ? null
-    : status === "agent_error"
+    : leadMismatch && !(status === "agent_error" && isBillingError(errorMessage))
+      ? leadMode.expected
+        ? "started with --orchestrate but lead mode was not active (no foreman-lead-applied entry or no subagent tool); check that the foreman package loads, then re-run"
+        : "lead mode was active in a run without --orchestrate (the foreman package is on in a solo config); fix the config, then re-run"
+      : status === "agent_error"
       ? `model call ended with stopReason "${lastStop ?? "?"}"${errorMessage ? `: ${errorMessage.slice(0, 160)}` : ""}`
       : status === "setup_failed"
         ? String(meta.error ?? "workspace setup failed")
@@ -354,6 +389,7 @@ export async function analyzeRun(
       incomplete: usage?.subagentCalls.incomplete ?? 0,
       workerResults: usage?.workers.length ?? 0,
     },
+    leadMode,
     flags,
     contamination,
     diffstat: diffSummary,

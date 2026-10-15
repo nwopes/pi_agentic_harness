@@ -33,3 +33,7 @@ pi-config/*/tmp/
 
 # saved FreeLLMAPI connection (contains an API key), written by /login-with-freellm
 pi-config/*/freellmapi.json
+
+# worker definitions copied in at runtime by the foreman package (source of truth: foreman/agents/)
+pi-config/harness/agents/
+pi-config/harness-lite/agents/

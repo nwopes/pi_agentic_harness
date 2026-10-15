@@ -35,20 +35,21 @@ PI_NODE=C:/Users/Akshat/AppData/Roaming/fnm/node-versions/v22.23.3/installation/
 PI_CLI=C:/Users/Akshat/AppData/Roaming/fnm/node-versions/v22.23.3/installation/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js
 export OPENROUTER_API_KEY="$(grep -E '^OPENROUTER_API_KEY=' "$REPO/.env" | head -1 | cut -d= -f2- | tr -d '\r"')"
 
-# on stage: the measured configuration (Opus lead)
+# on stage: the measured configuration (Opus lead) from the Foreman package; the same setup as `npm run compare`
 PI_CODING_AGENT_DIR="$REPO/pi-config/harness" "$PI_NODE" "$PI_CLI" \
-  --model openrouter/anthropic/claude-opus-5.5 \
-  --append-system-prompt "$REPO/pi-config/harness/LEAD.md" \
-  --subagent-max-depth 1 --no-skills
+  --model openrouter/anthropic/claude-opus-5.5 --no-skills --orchestrate
 
-# rehearsals: same workers, Haiku lead, 16k output cap (a hello-world delegation cost $0.006)
+# rehearsals: same package and workers, Haiku lead, 16k output cap (a hello-world delegation cost $0.005)
 PI_CODING_AGENT_DIR="$REPO/pi-config/harness-lite" "$PI_NODE" "$PI_CLI" \
-  --model openrouter/anthropic/claude-haiku-5.5 \
-  --append-system-prompt "$REPO/pi-config/harness/LEAD.md" \
-  --subagent-max-depth 1 --no-skills
+  --model openrouter/anthropic/claude-haiku-5.5 --no-skills --orchestrate
 ```
 
+Keep `--orchestrate` last (or before another option): a prompt typed right after it would be swallowed as its value.
+Alternatively start without it and type `/orchestrate` on stage. Switching lead mode on live is a nice beat.
+
 The Pi footer's cost excludes worker spend (NOTES.md). Don't quote it on stage.
+
+First type `/team`. It shows the lead's model and each worker's model: "One expensive lead, three cheap workers from three vendors."
 
 Paste the contents of `demo-tasks/quick/SPEC.md` as the request. While it runs, narrate:
 

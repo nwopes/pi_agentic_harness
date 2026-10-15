@@ -33,23 +33,22 @@
   },
   "modes": {
     "harness": {
+      "$comment": "The Foreman Pi package (repo-root package.json \"pi\" field, loaded via pi-config/harness/settings.json packages [\"../..\"]) with --orchestrate: the same setup as an interactive /orchestrate demo.",
       "piConfigDir": "pi-config/harness",
       "model": "anthropic/claude-opus-5.5",
       "leadRole": "lead",
-      "workerAgentsDir": "pi-config/harness/agents",
+      "workerAgentsDir": "foreman/agents",
       "extraPiArgs": [
-        "--append-system-prompt",
-        "{piConfigDir}/LEAD.md",
-        "--subagent-max-depth",
-        "1",
+        "--orchestrate",
         "--no-skills",
         "--no-approve"
       ],
       "requiredFiles": [
-        "LEAD.md",
-        "npm/node_modules/@mjakl/pi-subagent/package.json"
+        "settings.json",
+        "{repo}/node_modules/@mjakl/pi-subagent/package.json"
       ],
       "requiredHelpFlags": [
+        "--orchestrate",
         "--subagent-max-depth"
       ]
     },
@@ -72,24 +71,22 @@
       ]
     },
     "harness-lite": {
-      "$comment": "Cheap rehearsal profile (NOTES.md): Haiku lead, maxTokens capped at 16384 in its models.json, same workers and the harness LEAD.md. Not for measurement runs.",
+      "$comment": "Cheap rehearsal profile (NOTES.md): the same Foreman package and workers with a Haiku lead, maxTokens capped at 16384 in its models.json. Not for measurement runs.",
       "piConfigDir": "pi-config/harness-lite",
       "model": "anthropic/claude-haiku-5.5",
       "leadRole": "lead",
-      "workerAgentsDir": "pi-config/harness-lite/agents",
+      "workerAgentsDir": "foreman/agents",
       "extraPiArgs": [
-        "--append-system-prompt",
-        "{repo}/pi-config/harness/LEAD.md",
-        "--subagent-max-depth",
-        "1",
+        "--orchestrate",
         "--no-skills",
         "--no-approve"
       ],
       "requiredFiles": [
         "models.json",
-        "npm/node_modules/@mjakl/pi-subagent/package.json"
+        "{repo}/node_modules/@mjakl/pi-subagent/package.json"
       ],
       "requiredHelpFlags": [
+        "--orchestrate",
         "--subagent-max-depth"
       ]
     }

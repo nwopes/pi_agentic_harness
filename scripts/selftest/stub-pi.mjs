@@ -11,15 +11,24 @@ import { randomUUID } from "node:crypto";
 
 const argv = process.argv.slice(2);
 const agentDir = process.env.PI_CODING_AGENT_DIR ?? "";
-const isHarness = fs.existsSync(path.join(agentDir, "agents"));
+// A harness profile loads the Foreman package through settings.json "packages" (pi-config/harness/settings.json).
+const settings = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+  } catch {
+    return {};
+  }
+})();
+const isHarness = Array.isArray(settings.packages) && settings.packages.length > 0;
 if (argv.includes("--version")) {
   console.log(process.env.STUB_VERSION ?? "0.0.0-stub");
   process.exit(0);
 }
 if (argv.includes("--help")) {
-  console.log("pi (stub)\n  --mode <mode>\n  --model <id>\n" + (isHarness ? "Extension CLI Flags:\n  --subagent-max-depth <value>\n" : ""));
+  console.log("pi (stub)\n  --mode <mode>\n  --model <id>\n" + (isHarness ? "Extension CLI Flags:\n  --orchestrate\n  --subagent-max-depth <value>\n" : ""));
   process.exit(0);
 }
+const orchestrate = argv.includes("--orchestrate");
 const flag = (name) => {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -38,11 +47,11 @@ if (!modelRef.startsWith("openrouter/")) problems.push(`--model must be openrout
 for (const f of ["--no-skills", "--no-approve"]) if (!argv.includes(f)) problems.push(`${f} missing`);
 if (!sessionDir || !path.isAbsolute(sessionDir)) problems.push("--session-dir <abs> missing");
 if (process.env.PI_OFFLINE !== "1" || process.env.PI_TELEMETRY !== "0") problems.push("PI_OFFLINE=1 / PI_TELEMETRY=0 not set");
-if (isHarness) {
-  const lead = flag("--append-system-prompt");
-  if (!lead || !path.isAbsolute(lead) || !fs.existsSync(lead)) problems.push("--append-system-prompt <abs LEAD.md> missing");
-  if (flag("--subagent-max-depth") !== "1") problems.push("--subagent-max-depth 1 missing");
-} else if (argv.includes("--append-system-prompt") || argv.includes("--subagent-max-depth")) problems.push("solo mode got harness-only flags");
+// The Foreman package replaces the old hand-built harness flags: lead prompt, depth cap and worker sync all come
+// from --orchestrate.
+if (argv.includes("--append-system-prompt") || argv.includes("--subagent-max-depth")) problems.push("old harness flags (--append-system-prompt/--subagent-max-depth) instead of the Foreman package");
+if (isHarness && !orchestrate) problems.push("harness mode without --orchestrate");
+if (!isHarness && orchestrate) problems.push("--orchestrate in a profile that does not load the Foreman package");
 if (problems.length) {
   process.stderr.write(`stub-pi: bad invocation: ${problems.join("; ")}\n`);
   process.exit(64);
@@ -93,7 +102,13 @@ if (isHarness && runId.endsWith("-2")) process.stderr.write(`Warning: Model "${m
 emit({ type: "session", version: 3, id: sessionId, timestamp: new Date().toISOString(), cwd });
 emit({ type: "agent_start" });
 emit({ type: "turn_start" });
-emit({ type: "message_end", message: { role: "system", content: "stub system prompt", sections: { addendum: "LEAD" }, timestamp: now() } });
+// Like real Pi + Foreman: the system message declares the active tools (subagent only in lead mode), and
+// foreman/prompt.ts records each application of the lead prompt as a session entry. STUB_FAIL=nolead drops it.
+const toolsAdded = ["read", "bash", "edit", "write", ...(orchestrate ? ["subagent"] : [])].map((name) => ({ name, description: `${name} (stub)` }));
+emit({ type: "message_end", message: { role: "system", content: "stub system prompt", sections: { preamble: "stub" }, toolsAdded, timestamp: now() } });
+if (orchestrate && process.env.STUB_FAIL !== "nolead") {
+  emit({ type: "entry_appended", entry: { type: "custom", customType: "foreman-lead-applied", data: { leadSha256: "stub" }, id: "e1", timestamp: new Date().toISOString() } });
+}
 emit({ type: "message_end", message: { role: "user", content: prompt.trim(), timestamp: now() } });
 
 if (process.env.STUB_FAIL === "billing") {
@@ -123,11 +138,19 @@ if (runId === "strong-solo-2") {
   setInterval(() => {}, 1000);
 } else {
   if (isHarness) {
+    // The Foreman package ships its workers (<package>/foreman/agents in this repo, <package>/agents in the
+    // self-test's scratch package); settings.json "packages" paths are relative to the agent dir.
+    const pkg = path.resolve(agentDir, settings.packages[0]);
+    const workersDir = [path.join(pkg, "foreman", "agents"), path.join(pkg, "agents")].find((d) => fs.existsSync(d));
+    if (!workersDir) {
+      process.stderr.write(`stub-pi: no worker definitions under ${pkg}\n`);
+      process.exit(64);
+    }
     const workers = fs
-      .readdirSync(path.join(agentDir, "agents"))
+      .readdirSync(workersDir)
       .filter((f) => f.endsWith(".md"))
       .map((f) => {
-        const text = fs.readFileSync(path.join(agentDir, "agents", f), "utf8");
+        const text = fs.readFileSync(path.join(workersDir, f), "utf8");
         const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? "";
         const get = (k) => new RegExp(`^${k}:\\s*(.*)$`, "m").exec(fm)?.[1]?.trim();
         return { agent: get("name") ?? f.replace(/\.md$/, ""), model: get("model") };

@@ -412,7 +412,19 @@ async function main() {
       errors.push(`mode ${m}: Pi config dir not found: ${dir}`);
       continue;
     }
-    for (const f of mc.requiredFiles ?? []) if (!exists(path.join(dir, f))) errors.push(`mode ${m}: required file missing: ${path.join(dir, f)} (see NOTES.md setup)`);
+    for (const f of expandPiArgs(mc.requiredFiles, dir)) {
+      const p = path.isAbsolute(f) ? f : path.join(dir, f);
+      if (!exists(p)) errors.push(`mode ${m}: required file missing: ${p} (see README "Install the Foreman package" / NOTES.md setup)`);
+    }
+    // Lead-mode runs take worker models from the package (workerAgentsDir). A hand-written file in the profile's
+    // agents/ dir would silently replace one; the package only overwrites its own managed copies.
+    if (mc.extraPiArgs?.includes("--orchestrate") && exists(path.join(dir, "agents"))) {
+      for (const f of fs.readdirSync(path.join(dir, "agents")).filter((x) => x.toLowerCase().endsWith(".md"))) {
+        if (!fs.readFileSync(path.join(dir, "agents", f), "utf8").includes("managed-by: pi-foreman")) {
+          errors.push(`mode ${m}: ${path.join(dir, "agents", f)} is not managed by the foreman package and would override its workers; move it out or into foreman/agents/`);
+        }
+      }
+    }
     if (piOk && mc.requiredHelpFlags?.length) {
       const h = piHelpHasFlags(piCli, piNode, os.tmpdir(), dir, cfg.pi.env, mc.requiredHelpFlags);
       if (!h.ok) errors.push(`mode ${m}: \`pi --help\` does not list ${h.missing.join(", ")}; the extension did not load (with PI_OFFLINE=1 a missing package is skipped silently)${h.error ? `: ${h.error}` : ""}`);

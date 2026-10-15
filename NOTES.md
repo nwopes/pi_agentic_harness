@@ -5,10 +5,54 @@ Findings, verified flags, and decisions. Each fact cites where it came from.
 Path shorthands used below:
 
 - `<pi>` = `C:/Users/Akshat/AppData/Roaming/fnm/node-versions/v22.23.3/installation/node_modules/@earendil-works/pi-coding-agent` (installed Pi 1.2.0)
-- `<sub>` = `pi-config/harness/npm/node_modules/@mjakl/pi-subagent` (installed subagent package 3.1.0)
+- `<sub>` = `node_modules/@mjakl/pi-subagent` (subagent package 3.1.0, now a dependency of the repo-root Pi package; until 2026-10-15 it was installed per profile under `pi-config/harness/npm/`)
 - oira666 sources were read from `npm pack oira666_pi-subagent@0.5.14` (not installed)
 
 ---
+
+## Current harness setup: the Foreman Pi package (2026-10-15)
+
+This **supersedes** the hand-built harness described further down ("Harness prompt layout", "Setup command", "Command lines"). Those sections are kept as the record of how Milestone 0 was first verified.
+
+- **What changed:** `pi-config/harness` used to hold `LEAD.md` + `agents/*.md` and needed `--append-system-prompt LEAD.md --subagent-max-depth 1` on every launch. Now the repo root is one Pi package. Its files are in `foreman/`: `orchestrate.ts`, `prompt.ts`, `shared.ts`, `LEAD.md` and `agents/*.md`. The `harness` profiles load it via `settings.json` `"packages": ["../.."]`, and lead mode is `--orchestrate` (headless) or `/orchestrate` (interactive). The demo and the measured runs therefore share one setup.
+- **Why the repo root is the package:** Pi's git source cannot point at a subdirectory. The parser yields only `{repo, host, path, ref}`, and the clone root is the package root (`<pi>/dist/core/package-manager.js:1566-1573,1804`). So `package.json` carries the `pi` manifest next to the runner scripts.
+- **Load order** (`package.json` `pi.extensions`, which Pi keeps in order: `package-manager.js:1962-1970`):
+  1. `foreman/orchestrate.ts`: registers `--orchestrate`, `/orchestrate`, `/team`; sets `PI_SUBAGENT_MAX_DEPTH=1` (`??=`, so an explicit value wins) before pi-subagent's factory reads it (`<sub>/index.ts:386-387,715`); copies the workers in at `session_start`; toggles the `subagent` tool with `pi.setActiveTools`.
+  2. `./node_modules/@mjakl/pi-subagent`: Pi reads that package's own `pi.extensions` (`package-manager.js:381-405`).
+  3. `foreman/prompt.ts`: `before_agent_start`. When lead mode is on, it adds `LEAD.md` as a `<lead_mode>` section. If pi-subagent already replaced the whole prompt string (it returns `{systemPrompt: event.systemPrompt + list}`, `<sub>/index.ts:772-786`), the section is appended to that string instead. When lead mode is off, it removes pi-subagent's `## Available Subagents` block, which pi-subagent injects even when its tool is inactive.
+- **Dependency, not vendored.**
+  - Pi docs: "Other Pi packages used as dependencies must be included in the published tarball and referenced through their `node_modules` resource paths" (`<pi>/docs/packages.md:90`).
+  - Pi installs a package's dependencies for npm and git sources: git runs `npm install --omit=dev --legacy-peer-deps` in the clone (`package-manager.js:1495-1496,1570-1573`). Local paths are not installed for you (`packages.md:88`), hence `npm ci`.
+  - Publishing to npm later would need `bundledDependencies`.
+  - Vendoring would also have been allowed: the license is MIT, © 2026 Michael Jakl (`<sub>/LICENSE`).
+  - Pi core is an optional `peerDependency` (`"*"`), per `packages.md:88`, so `npm ci` doesn't pull Pi into the repo.
+- **Worker discovery has no hook.** pi-subagent reads only `getAgentDir()/agents` and trusted project `.pi/agents` (`<sub>/agents.ts:152-166`). So `orchestrate.ts` copies `foreman/agents/*.md` there at `session_start`, marking each copy with `managed-by: pi-foreman`. It runs before pi-subagent's own `session_start` discovery, in load order. Files without the marker are the user's: they are never overwritten, and they override that worker.
+  - The runner's preflight refuses an `--orchestrate` profile whose `agents/` holds such a file, because it would silently change a measured worker's model.
+- **Workers load the package too.** They inherit `PI_CODING_AGENT_DIR`, and pi-subagent forwards unknown parent flags such as `--orchestrate` (`<sub>/runner-cli.js:273-286`).
+  - The flag is therefore registered in workers as well; otherwise Pi exits with "Unknown option".
+  - Everything else is skipped when `PI_SUBAGENT_DEPTH > 0`, the variable pi-subagent sets for children.
+- **Proof of lead mode per run.** Pi's JSON log records the base system prompt, *not* extension edits; checked offline, no `<lead_mode>` appears in any event. So `prompt.ts` writes a `foreman-lead-applied` session entry with the SHA-256 of `LEAD.md` each time it applies it, and Pi emits that entry as `entry_appended`. The system message's `toolsAdded` shows whether `subagent` was active.
+  - `scripts/lib/analyze.ts` requires both for runs started with `--orchestrate` (`LEAD_MODE_MISSING`) and neither for solo runs (`LEAD_MODE_UNEXPECTED`). Either mismatch excludes the run as a setup failure to re-run, and `results.json` records `leadMode` with the hash.
+- **Flag parsing caveats** (`<pi>/dist/cli/args.js:247-251`; `agent-session-services.js:27-29`):
+  - `--orchestrate "task"` consumes `"task"` as the flag's value.
+  - Boolean extension flags are set to `true` whatever value is given, so `--orchestrate=false` is still on.
+  - The runner pipes the prompt on stdin, so neither caveat applies there.
+- **Verified:**
+  - **Offline**, `foreman/test/rpc-orchestrate-test.mjs` captures what Pi actually sends to the model through a local stand-in for OpenRouter. 8/8 checks pass:
+    - off by default;
+    - `/orchestrate` on, then off, in one session, checked by the lead section, pi-subagent's list and the `subagent` tool in the request;
+    - `/team` models;
+    - `--orchestrate` on at start;
+    - a simulated worker with a forwarded `--orchestrate` stays a worker, without "Unknown option";
+    - depth 1 without `--subagent-max-depth`.
+  - **Self-test:** `npm run selftest` passes, including the new lead-mode checks in both directions and the hand-written-worker preflight.
+  - **Install:** `pi install <abs path>` and `pi install ./` (stored relative to the agent dir), then `--help` lists `--orchestrate` and `--subagent-max-depth`.
+  - **Live, 2026-10-15:** `harness-lite` (Haiku lead) with `--orchestrate` and the step-3 hello-world prompt.
+    - Exit 0 after 20 s. Both files correct; `BOARD.md` written.
+    - One `foreman-lead-applied` entry; `subagent` active; delegation `[{backend},{frontend}]` with no per-call model.
+    - OpenRouter `/generation`: backend 3× `minimax/minimax-m3-20260531`; frontend 3× `moonshotai/kimi-k2.7-code-20260612`.
+    - Key usage delta **$0.005077** (reads 0.005857677 → 0.010934685, stable for 3 reads). Pi estimate $0.00550 (+8%).
+  - **Not yet verified:** a real `pi install git:github.com/nwopes/pi_agentic_harness`, which needs this commit on GitHub; and resume restoring the `/orchestrate` state, which follows Pi's plan-mode example but was not run.
 
 ## Milestone 0, configuration part: status (2026-10-15)
 
@@ -111,6 +155,8 @@ Path shorthands used below:
 - `--no-context-files` / `-nc` disables **all** context files, including the agent-dir one: `agentsFiles: this.noContextFiles ? [] : ...`. So it cannot be used to drop only the ancestor files.
 
 ## Harness prompt layout (deviation from the PRD's literal layout, on purpose)
+
+> **Superseded (2026-10-15)** by "Current harness setup: the Foreman Pi package" above; kept as the record of the original Milestone 0 setup.
 
 - Workers are child Pi processes that inherit the parent's env, including `PI_CODING_AGENT_DIR` (`<sub>/runner.ts` `spawn(..., env: {...process.env, ...})`). So they also load `<agentDir>/AGENTS.md`.
 - The mock run confirmed it: with the team prompt at `pi-config/harness/AGENTS.md`, all three worker requests contained "You are the LEAD of a small engineering team".
@@ -298,6 +344,8 @@ pi-config/*/mcp-auth.json
 
 ### Setup command (fresh clone or new machine)
 
+> **Superseded (2026-10-15)** by "Current harness setup: the Foreman Pi package" above; kept as the record of the original Milestone 0 setup.
+
 ```bash
 REPO=C:/Users/Akshat/Desktop/pi_agentic_harness
 PND=/c/Users/Akshat/AppData/Roaming/fnm/node-versions/v22.23.3/installation
@@ -328,6 +376,8 @@ PI_OFFLINE=1 PI_CODING_AGENT_DIR="$REPO/pi-config/harness" PATH="$PND:$PATH" pi 
 The scratch artifacts (mock server, probes, event logs) are in the session scratchpad. They are not part of the repo.
 
 ## Command lines
+
+> **Superseded (2026-10-15)** by "Current harness setup: the Foreman Pi package" above; kept as the record of the original Milestone 0 setup.
 
 Common setup for Git Bash. Run from the workspace directory, which is the cwd Pi works in.
 

@@ -8,8 +8,9 @@
  *                            Exit code stays 0 even if the model call failed -> status comes from the events.
  *  - `--model openrouter/<id>`  provider-prefixed id (unambiguous: Pi also has built-in anthropic/minimax providers).
  *  - `--session-dir <dir>`   session JSONL outside the workspace (else <agentDir>/sessions).
- *  - extra per-mode args from foreman.config.json (harness: --append-system-prompt LEAD.md --subagent-max-depth 1;
- *    all modes: --no-skills --no-approve).
+ *  - extra per-mode args from foreman.config.json (harness modes: --orchestrate, from the Foreman Pi package their
+ *    settings.json loads; all modes: --no-skills --no-approve). --orchestrate must not directly precede a
+ *    positional message (Pi would read it as the flag's value); here the prompt comes on stdin, so it never does.
  *  - env PI_CODING_AGENT_DIR=<abs pi-config/<mode>> plus config pi.env (PI_OFFLINE=1, PI_TELEMETRY=0).
  *    OPENROUTER_API_KEY is inherited from the runner's environment (the runner loads .env; Pi does not).
  *  - prompt on stdin: when stdin is not a TTY Pi reads it to EOF and uses it as the first message
