@@ -52,7 +52,13 @@ This **supersedes** the hand-built harness described further down ("Harness prom
     - One `foreman-lead-applied` entry; `subagent` active; delegation `[{backend},{frontend}]` with no per-call model.
     - OpenRouter `/generation`: backend 3× `minimax/minimax-m3-20260531`; frontend 3× `moonshotai/kimi-k2.7-code-20260612`.
     - Key usage delta **$0.005077** (reads 0.005857677 → 0.010934685, stable for 3 reads). Pi estimate $0.00550 (+8%).
-  - **Not yet verified:** a real `pi install git:github.com/nwopes/pi_agentic_harness`, which needs this commit on GitHub; and resume restoring the `/orchestrate` state, which follows Pi's plan-mode example but was not run.
+  - **Git install, 2026-10-15** (commit 913c3d1 on GitHub; fresh agent dirs):
+    - `pi install git:github.com/nwopes/pi_agentic_harness`, the `@913c3d1`-pinned form and `https://github.com/nwopes/pi_agentic_harness` all installed.
+    - Each cloned to `<agentDir>/git/github.com/nwopes/pi_agentic_harness` at 913c3d1. `node_modules` held only `@mjakl` (no devDependencies). `settings.json` records the source string, and `--help` lists `--orchestrate` and `--subagent-max-depth`.
+    - `foreman/test/rpc-orchestrate-test.mjs` run from the git-installed copy: 8/8.
+    - `pi remove git:github.com/nwopes/pi_agentic_harness` left `packages: []`.
+  - **Windows gotcha:** the first attempt used a 186-character agent-dir path and failed in Pi's `git clone` with `fatal: fetch-pack: invalid index-pack output` (code 128). git's pack files push the path past 260 characters while `core.longpaths` is unset. A plain clone to a short path worked. The normal `~/.pi/agent/git/...` path is about 75 characters. Fix: a shorter agent dir, or `git config --global core.longpaths true`.
+  - **Not yet verified:** resume restoring the `/orchestrate` state. It follows Pi's plan-mode example but was not run.
 
 ## Milestone 0, configuration part: status (2026-10-15)
 

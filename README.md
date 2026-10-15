@@ -27,7 +27,7 @@ Workers are defined in [`foreman/agents/`](foreman/agents/) (`frontend`, `backen
 
 ### Install
 
-Pi 1.2 syntax, from Pi's `docs/packages.md`. Both forms were tested with Pi 1.2.0.
+Pi 1.2 syntax, from Pi's `docs/packages.md`. Every form below was tested with Pi 1.2.0; the git forms were tested against this GitHub repo at commit 913c3d1.
 
 ```bash
 # from a local path (absolute, or relative to where you run it). Pi does not install dependencies for local
@@ -51,6 +51,7 @@ pi -e C:/path/to/pi_agentic_harness   # one session only, without installing
 - **Workers are copied into `<agentDir>/agents/`** at startup. `@mjakl/pi-subagent` only looks there, and has no hook for other packages. The copies carry a `managed-by: pi-foreman` line and are refreshed on every start. A file of the same name *without* that line is yours: it is never overwritten, it overrides that worker, and `/team` says so.
 - **`--orchestrate` placement:** don't put a prompt right after it (`pi --orchestrate "task"`). Pi would read the prompt as the flag's value. Put the flag before another option or after the prompt, or pipe the prompt on stdin, as the runner does.
 - `--orchestrate=false` still turns lead mode **on**; leave the flag out instead.
+- **Windows:** if `pi install git:…` fails with `fetch-pack: invalid index-pack output`, the agent dir's path is too long for git; the 260-character limit applies while `core.longpaths` is off. Use a shorter agent dir or run `git config --global core.longpaths true`. The default `~/.pi/agent` is fine.
 - Pi's own footer and `/session` cost **exclude** worker spend (see NOTES.md).
 
 ## Modes (Pi config profiles in `pi-config/`)
