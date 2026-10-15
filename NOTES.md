@@ -453,10 +453,31 @@ Runner notes, mapped to `foreman.config.json`:
   - Setup: `PI_CODING_AGENT_DIR=<repo>/pi-config/harness-lite pi install npm:@mjakl/pi-subagent@3.1.0`, same as `harness`.
   - Caveat: a response that needs more than 16k output tokens (reasoning included) ends with `stopReason: "length"`. That's fine for small demos; it's the reason measurement runs stay uncapped.
 - **`pi-config/harness-free/` (incomplete): every role through a local FreeLLMAPI router** (github.com/tashfeenahmed/freellmapi, MIT). The router uses the user's own free-tier provider keys and exposes OpenAI-compatible `/v1`.
-  - `models.json` mirrors FreeLLMAPI's own `setup-pi` generator (`cli/src/tools.ts`: `api: openai-completions`, `reasoning: false`, zero cost, `User-Agent: pi-coding-agent`). The difference: the key comes from `$FREELLMAPI_API_KEY` (Pi interpolates `$NAME` in `apiKey`) instead of being written into the file.
+  - The provider now comes from the **`extensions/freellmapi` Pi extension** (below), not from a static `models.json`; that file was removed to avoid two definitions of `freellmapi`.
   - Worker models: `freellmapi/auto:smart` for frontend and backend, `freellmapi/auto:fast` for tests. Pi tries an exact model-id match before treating `:suffix` as a thinking level (`<pi>/dist/core/model-resolver.js` `parseModelPattern`), so the colon ids resolve.
-  - Base URL: `http://localhost:3901/v1`. FreeLLMAPI defaults to port 3001, which is the habit-tracker API port, so it must run with `PORT=3901`.
-  - Missing: `settings.json` (with the `packages` entry that loads the subagent extension) and the `pi install` step. Writing them was blocked by the session's auto-mode permission classifier ("Traffic Redirection"), pending the user's decision.
+  - Missing: `settings.json`, whose `packages` must list `npm:@mjakl/pi-subagent@3.1.0` and the extension so workers load it too. Writing it was blocked by the session's auto-mode permission classifier ("Traffic Redirection"), pending the user's decision.
+
+## FreeLLMAPI login extension (`extensions/freellmapi/`, added 2026-10-15)
+
+- Adds `/login-with-freellm` and the `freellmapi` provider. Usage is in `extensions/freellmapi/README.md`.
+- FreeLLMAPI facts, read from its source via `gh api` (repo HEAD 5a3abac8b4, 2026-10-15):
+  - Client auth is `Authorization: Bearer` (or `x-api-key`) with the unified key `freellmapi-<48 hex>` or a client-profile key `sk-cp-…`. A bad key gets 401 `{"error":{"message":"Invalid API key",...}}` (`server/src/routes/proxy.ts`).
+  - Health: unauthenticated `GET /livez` returns `{status,version,uptime_s}`; `/api/ping` returns `{status:"ok"}`. `GET /v1/models` returns `context_length` but **no max-output field**.
+  - `auto:smart`/`auto:fast` are accepted by the router (`services/router.ts`) but are not listed in `/v1/models`.
+  - Login: `POST /api/auth/login {email,password}` returns `{token}`, valid 30 days. `POST /api/client-profiles {name}` returns a separate revocable `sk-cp-` key (`key` field, shown once). `GET /api/settings/api-key` returns the shared unified key. `POST /api/auth/logout`.
+  - Lockout: 5 failed logins per email lock that email for 15 minutes (429 + `Retry-After`).
+  - No device-code or pairing flow exists.
+  - Ports: npm/Docker default to `PORT` 3001. **The desktop app uses 31415**, or the next free port, saved in `%APPDATA%/FreeLLMAPI/config.json`. The desktop account is a hidden `desktop@localhost` user with a random password, so password login can't work there; the tray's *Copy API key* is the route.
+- Pi facts, read from `<pi>/dist/core/extensions/types.d.ts` and the docs:
+  - `pi.registerCommand`, `ctx.ui.select/confirm/input/notify`, `pi.registerProvider` (callable at runtime; takes effect immediately), `pi.unregisterProvider`, `pi.setModel`, `ctx.modelRegistry.find`, and `getAgentDir()`/`readStoredCredential()` exported from the package root.
+  - **Pi has no masked input, and no public API for extensions to write `auth.json`.** So the connection is saved to `<agentDir>/freellmapi.json` (gitignored) and passed as `apiKey`, escaped with `$$`/`$!` because Pi interpolates `$NAME` and a leading `!`.
+  - A provider registered with `apiKey` also appears in the built-in `/login`, and a key stored there takes precedence. The command warns when they differ.
+  - Non-interactive modes exit before running a command if no model is usable (`<pi>/dist/main.js:755`). Interactive mode starts anyway.
+- Verified offline against `extensions/freellmapi/test/mock-freellmapi.mjs` (API shapes copied from FreeLLMAPI's source):
+  - `test/rpc-login-test.mjs` drives the interactive flow over Pi's RPC mode, 3/3 scenarios passing: password login → separate `sk-cp-` key → model switch; pasted unified key with a non-default model; wrong password reported and nothing saved.
+  - Print mode: login with args; a real streamed chat turn after a fresh start using only the saved connection (no OpenRouter key); `status`; `logout`; the env-only path; a wrong key (401 message); and no server at the URL.
+  - **Not yet tested against a real FreeLLMAPI install.**
+- Testing pitfall: Git Bash's MSYS path conversion turns a `-p "/login-with-freellm status"` argument into a Windows path, so Pi sends it to the model as a chat message. Set `MSYS_NO_PATHCONV=1`, and then pass Pi's paths as `C:/...`, not `/c/...`.
 
 ## Pending live verification (needs `OPENROUTER_API_KEY`)
 

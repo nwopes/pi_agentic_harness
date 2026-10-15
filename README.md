@@ -25,6 +25,10 @@ Cheap models doing frontier-quality work. A strong **lead** model plans in `BOAR
 | `harness-lite` | `anthropic/claude-haiku-5.5`, all outputs capped at 16k tokens | same as `harness` | cheap rehearsals (cents) |
 | `harness-free` | FreeLLMAPI `auto:smart` | FreeLLMAPI `auto:smart` / `auto:fast` | **incomplete**, see NOTES.md |
 
+### Free models through FreeLLMAPI
+
+[`extensions/freellmapi`](extensions/freellmapi/README.md) adds a `/login-with-freellm` command to Pi. It finds your local [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) router, gets a key (from the clipboard, a pasted key, or an email/password login that creates a separate revocable key for Pi), validates it, and switches Pi to a free model. Load it with `pi -e extensions/freellmapi`, or `pi install` it.
+
 ## Setup (Windows, Git Bash)
 
 Pi 1.2.0 needs Node 22.19 or newer. It runs on an fnm-installed Node 22.23.3, so the system Node is untouched. The full commands are in NOTES.md under "Setup command".

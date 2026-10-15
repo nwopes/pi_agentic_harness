@@ -30,3 +30,6 @@ pi-config/*/git/
 pi-config/*/bin/
 pi-config/*/tools/
 pi-config/*/tmp/
+
+# saved FreeLLMAPI connection (contains an API key), written by /login-with-freellm
+pi-config/*/freellmapi.json

@@ -1,0 +1,11 @@
+{
+  "name": "pi-freellmapi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pi extension: /login-with-freellm connects Pi to a self-hosted FreeLLMAPI router",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
