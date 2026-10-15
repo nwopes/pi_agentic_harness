@@ -277,15 +277,30 @@ From `<pi>/dist/core/extensions/types.d.ts`, `<pi>/docs/extensions.md` and `<pi>
   - The connection is saved to `<agentDir>/freellmapi.json` (gitignored) and passed as `apiKey`. Escape it with `$$`/`$!`, because Pi interpolates `$NAME` and a leading `!`.
   - It was written before `ModelRuntime.login` was found (see the API section), so it does not use `auth.json`.
   - Max output is `min(8192, context)`, matching FreeLLMAPI's own `setup-pi` generator.
-- **Workers stay off OpenRouter.** While `ctx.model.provider === "freellmapi"`, a `tool_call` handler sets every `subagent` call's `model` to `freellmapi/<lead model id>`, leaving explicit `freellmapi/…` models alone.
-  - It answers Foreman's `foreman:worker-models` query, so `/team` shows the switch.
+- **Where workers run.** A `tool_call` handler sets every `subagent` call's `model` (leaving explicit `freellmapi/…` models alone) to:
+  - `freellmapi/<lead id>` while the lead itself is on FreeLLMAPI, always;
+  - otherwise `freellmapi/<setting model>` when `/freellm` is `workers` or `all`.
+  - With `off` and a paid lead, workers keep their own models.
+  - It answers Foreman's `foreman:worker-models` query, so `/team` shows the effective models.
   - Workers get the provider because they inherit `PI_CODING_AGENT_DIR` and so load the same packages and `freellmapi.json`.
+- **`/freellm off|workers|all [model]` (added 2026-10-15, at the user's request):** the user wants a good lead with free workers most of the time, and sometimes free only.
+  - **Storage:** the setting is saved in `<agentDir>/freellmapi-mode.json` (`{mode, model}`, gitignored), separate from the connection so a re-login keeps it. Logout deletes both.
+  - **`all` and the lead:** `pi.setModel` "sets the model for the current session without changing the configured default for new sessions" (`types.d.ts`). So `all` switches the lead at `session_start`, every start, including over an explicit paid `--model`. It skips worker processes (`PI_SUBAGENT_DEPTH>0`).
+  - **Switching back:** `off`/`workers` restore the lead that `all` replaced in this session. If the session began on FreeLLMAPI, the lead stays and the user is told to use `/model`.
+  - **Not connected** (no `freellmapi/<model>` in the registry): the command refuses `workers`/`all`, and the `tool_call` handler **blocks** the call (`{block:true, reason}`) instead of letting workers fall back to paid models.
+  - **Footer:** `ctx.ui.setStatus("freellmapi", …)`. Over RPC this arrives as `extension_ui_request` `method:"setStatus"` with `statusKey` and `statusText`.
 - **Verified offline:**
   - `test/rpc-login-test.mjs` against `test/mock-freellmapi.mjs`, 3/3: password login → separate key → model switch; pasted unified key; wrong password.
   - Print mode: login with args, a streamed turn using only the saved connection, `status`, `logout`, the env-only path, a wrong key, and no server.
-  - `test/rpc-workers-test.mjs`, 8/8:
+  - `test/rpc-workers-test.mjs`, 21/21:
     - Lead on `freellmapi/auto:smart` with `--orchestrate`: a real worker process sent `auto:smart` to FreeLLMAPI with the FreeLLMAPI key, and **zero requests reached OpenRouter**, even though `OPENROUTER_API_KEY` was set.
     - Control run, lead on OpenRouter: the worker went to OpenRouter as `minimax/minimax-m3`.
+    - `/freellm workers`: lead requests on OpenRouter, worker on FreeLLMAPI; `/team`, the notice and the footer show it; it survives a restart.
+    - `all`: zero OpenRouter requests. `off`: paid lead and paid workers are back.
+    - Saved `all`: a session started with a paid `--model` goes to FreeLLMAPI.
+    - Picker: picking from both lists works.
+    - Not connected: the command is refused, and delegation is blocked with no worker request anywhere.
+  - Test detail: Pi's Anthropic-format requests end with an extra `{"role":"system","content":[],"output_config":{…}}` entry after the user message, so a stand-in looking for "the last message" must skip system entries.
 - **Not tested against a real FreeLLMAPI install.**
 
 ## OpenRouter key pasted into Pi (`foreman/keys.ts`)

@@ -50,7 +50,12 @@ Pi can't install a *subfolder* of a git repo, so the repo root's `package.json` 
 
 [`extensions/freellmapi`](extensions/freellmapi/README.md) adds `/login-with-freellm`, which connects Pi to a self-hosted [FreeLLMAPI](https://github.com/tashfeenahmed/freellmapi) router. Install it on its own: `pi install <repo>/extensions/freellmapi`.
 
-**On FreeLLMAPI, OpenRouter is not used.** Pi sends a provider's key only to that provider, so the lead never sends your OpenRouter key to FreeLLMAPI. With both installed, while the session's model is a `freellmapi/…` model, the extension also moves every worker call onto that same model. Foreman's workers are otherwise pinned to OpenRouter, so this keeps lead mode free. `/team` shows the switch. Tested offline: a real worker process went to FreeLLMAPI, and zero requests reached OpenRouter.
+**`/freellm` sets how much work goes to FreeLLMAPI.** The setting is saved:
+- `off`: everything uses its own model.
+- `workers`: your chosen lead, e.g. Opus on OpenRouter, orchestrates, and every worker runs free on FreeLLMAPI.
+- `all`: free only, lead included.
+
+A `freellmapi/…` lead always takes its workers along, so a free session never spends OpenRouter credit. If FreeLLMAPI isn't connected, worker calls are blocked; they never quietly fall back to paid models. `/team` and the footer show the effect. The details are in [its README](extensions/freellmapi/README.md#how-much-should-freellmapi-do-freellm).
 
 ## Develop
 
@@ -68,7 +73,7 @@ npm run typecheck   # typecheck only
 |---|---|
 | `foreman/test/rpc-orchestrate-test.mjs` | Lead mode off by default, `/orchestrate` on/off, `/team`, `--orchestrate`, workers never lead, depth 1, resume keeps the toggle (11) |
 | `foreman/test/rpc-keys-test.mjs` | A pasted key is saved and never sent, is used at once and by new processes, and wins over the env var (11) |
-| `extensions/freellmapi/test/rpc-workers-test.mjs` | FreeLLMAPI lead → a real worker process goes to FreeLLMAPI, zero OpenRouter requests; control run (8) |
+| `extensions/freellmapi/test/rpc-workers-test.mjs` | Where workers and the lead really go for a FreeLLMAPI lead and for `/freellm off/workers/all` (saved, restart, picker, not connected), with a control run (21) |
 | `extensions/freellmapi/test/rpc-login-test.mjs` | The `/login-with-freellm` flows against a mock FreeLLMAPI (3) |
 
 Each test drives Pi over RPC against local stand-ins and checks what Pi actually sends.

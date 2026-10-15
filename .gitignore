@@ -29,6 +29,7 @@ pi-config/*/tmp/
 
 # saved FreeLLMAPI connection (contains an API key), written by /login-with-freellm
 pi-config/*/freellmapi.json
+pi-config/*/freellmapi-mode.json
 
 # worker definitions the foreman package copies in at startup (source of truth: foreman/agents/)
 pi-config/*/agents/

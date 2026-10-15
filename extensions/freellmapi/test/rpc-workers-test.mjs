@@ -8,7 +8,7 @@
 //   node extensions/freellmapi/test/rpc-workers-test.mjs <pi-node> <pi-cli>
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -66,7 +66,11 @@ const server = http.createServer((req, res) => {
       hasToolResult,
     });
 
-    const delegate = system.includes("You are the LEAD") && !hasToolResult;
+    // The lead delegates once per user prompt: when the newest message is the user's, not a tool result. (Pi's
+    // Anthropic-format requests end with an extra {role: "system", output_config} entry, so skip system entries.)
+    const last = messages.filter((m) => m.role !== "system" && m.role !== "developer").at(-1);
+    const newTurn = last?.role === "user" && !(Array.isArray(last.content) && last.content.some((c) => c?.type === "tool_result"));
+    const delegate = system.includes("You are the LEAD") && newTurn;
     if (anthropic) {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
       const event = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
@@ -111,26 +115,33 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const root = `http://127.0.0.1:${server.address().port}`;
 
-function newAgentDir() {
+/** `connected: false` leaves out the saved FreeLLMAPI connection; `mode` pre-writes a /freellm setting. */
+function newAgentDir({ connected = true, mode } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "freellm-workers-"));
   writeFileSync(join(dir, "settings.json"), JSON.stringify({ enableInstallTelemetry: false, packages: [repo, extensionDir] }, null, 2));
   writeFileSync(join(dir, "models.json"), JSON.stringify({ providers: { openrouter: { baseUrl: `${root}/or` } } }));
-  writeFileSync(
-    join(dir, "freellmapi.json"),
-    JSON.stringify({ baseUrl: root, apiKey: FREELLM_KEY, models: [{ id: "auto:smart", name: "FreeLLMAPI auto:smart", contextWindow: 128000 }], savedAt: "test" }),
-  );
+  if (connected) {
+    writeFileSync(
+      join(dir, "freellmapi.json"),
+      JSON.stringify({ baseUrl: root, apiKey: FREELLM_KEY, models: [{ id: "auto:smart", name: "FreeLLMAPI auto:smart", contextWindow: 128000 }, { id: "auto:fast", name: "FreeLLMAPI auto:fast", contextWindow: 128000 }], savedAt: "test" }),
+    );
+  }
+  if (mode) writeFileSync(join(dir, "freellmapi-mode.json"), JSON.stringify(mode));
   return dir;
 }
 
-/** One Pi RPC session: slash commands wait for their response, prompts wait for agent_settled. */
-function session(model, steps) {
-  const agentDir = newAgentDir();
+/**
+ * One Pi RPC session: slash commands wait for their response, prompts wait for agent_settled. `out.steps[i]` holds the
+ * requests made during step i. Pass `agentDir` to reuse one (it is then kept for the caller to remove).
+ */
+function session(model, steps, { agentDir: reuse, picks = [] } = {}) {
+  const agentDir = reuse ?? newAgentDir();
   const child = spawn(piNode, [piCli, "--mode", "rpc", "--model", model, "--no-skills", "--no-session", "--orchestrate"], {
     cwd: agentDir,
     env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, PI_OFFLINE: "1", PI_TELEMETRY: "0", OPENROUTER_API_KEY: OPENROUTER_KEY },
     stdio: ["pipe", "pipe", "pipe"],
   });
-  const out = { notes: [], stderr: "", exitCode: null, timedOut: [] };
+  const out = { notes: [], statuses: [], steps: [], stderr: "", exitCode: null, timedOut: [] };
   let buffer = "";
   let waiting = null;
   child.stderr.on("data", (d) => (out.stderr += d));
@@ -144,6 +155,13 @@ function session(model, steps) {
       let msg;
       try { msg = JSON.parse(line); } catch { continue; }
       if (msg.type === "extension_ui_request" && msg.method === "notify") out.notes.push(msg.message);
+      if (msg.type === "extension_ui_request" && msg.method === "setStatus") out.statuses.push(msg);
+      // Answer select dialogs in order with the first option matching the next regex in `picks`.
+      if (msg.type === "extension_ui_request" && msg.method === "select") {
+        const pick = picks.shift();
+        const value = pick && msg.options.find((o) => pick.test(o));
+        child.stdin.write(JSON.stringify({ type: "extension_ui_response", id: msg.id, ...(value ? { value } : { cancelled: true }) }) + "\n");
+      }
       if (waiting && (msg.type === "agent_settled" || (msg.type === "response" && msg.id?.startsWith("cmd")))) {
         const w = waiting;
         waiting = null;
@@ -154,17 +172,21 @@ function session(model, steps) {
   return new Promise((resolveSession) => {
     child.on("exit", (code) => {
       out.exitCode = code;
-      rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      if (!reuse) rmSync(agentDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
       resolveSession(out);
     });
     (async () => {
+      // Give session_start (which may switch the model) a moment before the first step.
+      await new Promise((r) => setTimeout(r, 300));
       for (const [i, step] of steps.entries()) {
         const isCmd = step.startsWith("/");
+        const before = requests.length;
         await new Promise((r) => {
           waiting = r;
           child.stdin.write(JSON.stringify({ id: `${isCmd ? "cmd" : "prompt"}-${i}`, type: "prompt", message: step }) + "\n");
           setTimeout(() => waiting === r && (out.timedOut.push(step), (waiting = null), r()), isCmd ? 20_000 : 90_000);
         });
+        out.steps.push(requests.slice(before));
       }
       child.kill();
     })();
@@ -205,7 +227,7 @@ check(
   "lead on FreeLLMAPI: /team shows the backend on freellmapi/auto:smart, redirected by FreeLLMAPI",
   team ?? s.notes.join(" | "),
 );
-check(s.notes.some((n) => /Workers run on freellmapi\/auto:smart too/.test(n)), "lead on FreeLLMAPI: the user is told once that workers stay on FreeLLMAPI", s.notes.join(" | "));
+check(s.notes.some((n) => /Workers run on freellmapi\/auto:smart, so nothing goes to OpenRouter/.test(n)), "lead on FreeLLMAPI: the user is told once that workers stay on FreeLLMAPI", s.notes.join(" | "));
 
 // 2. Control, lead on OpenRouter: the worker goes to OpenRouter on its pinned model, so the test can see a leak.
 start = requests.length;
@@ -224,6 +246,88 @@ check(
   "control, lead on OpenRouter: /team shows the normal OpenRouter worker models",
   team ?? s.notes.join(" | "),
 );
+
+// --- /freellm: how much work goes to FreeLLMAPI
+const PAID_LEAD = "openrouter/anthropic/claude-haiku-5.5";
+const isLead = (r) => r.system.includes("You are the LEAD");
+const onOpenRouter = (r) => r.path.startsWith("/or/");
+const onFree = (r) => r.path.startsWith("/v1/");
+const freeWorkerOk = (reqs) => reqs.some((r) => isWorker(r) && onFree(r) && r.model === "auto:smart" && r.authorization === `Bearer ${FREELLM_KEY}`);
+const modeFile = (dir) => {
+  try {
+    return JSON.parse(readFileSync(join(dir, "freellmapi-mode.json"), "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
+// 3. "workers": a paid lead orchestrates, the workers run free.
+const kept = newAgentDir();
+s = await session(PAID_LEAD, ["/freellm workers", "/team", "build it"], { agentDir: kept });
+check(
+  s.notes.some((n) => n.startsWith(`FreeLLMAPI: workers. Your lead (${PAID_LEAD}) orchestrates`)) && modeFile(kept)?.mode === "workers" && modeFile(kept)?.model === "auto:smart",
+  "/freellm workers: confirmed and saved (mode workers, model auto:smart)",
+  `${s.notes.join(" | ")}\nsaved: ${JSON.stringify(modeFile(kept))}`,
+);
+team = s.notes.find((n) => n.startsWith("Foreman team")) ?? "";
+check(/backend\s+freellmapi\/auto:smart\s+\(FreeLLMAPI, \/freellm workers[^\n]*openrouter\/minimax\/minimax-m3/.test(team) && new RegExp(`lead\\s+${PAID_LEAD}`).test(team), "/freellm workers: /team shows the paid lead and free workers", team);
+let step = s.steps[2];
+check(
+  step.filter(isLead).length > 0 && step.filter(isLead).every(onOpenRouter) && freeWorkerOk(step) && !step.some((r) => isWorker(r) && onOpenRouter(r)),
+  "/freellm workers: lead requests go to OpenRouter, the worker's goes to FreeLLMAPI (auto:smart, FreeLLMAPI key)",
+  show(step),
+);
+check(s.notes.some((n) => n === `Workers run on freellmapi/auto:smart; the lead stays on ${PAID_LEAD}.`), "/freellm workers: the user is told where workers run", s.notes.join(" | "));
+check(JSON.stringify(s.statuses).includes("FreeLLMAPI: workers (auto:smart)"), "/freellm workers: the footer shows the setting", JSON.stringify(s.statuses));
+
+// 4. The setting survives a restart; "all" moves the lead too; "off" brings back the paid lead and paid workers.
+s = await session(PAID_LEAD, ["build it", "/freellm all", "build it", "/freellm off", "build it"], { agentDir: kept });
+check(freeWorkerOk(s.steps[0]) && s.steps[0].filter(isLead).every(onOpenRouter), "after a restart, workers still run free (setting saved in the agent dir)", show(s.steps[0]));
+step = s.steps[2];
+check(
+  step.length > 0 && !step.some(onOpenRouter) && step.some((r) => isLead(r) && onFree(r) && r.model === "auto:smart") && freeWorkerOk(step),
+  "/freellm all: lead and worker both on FreeLLMAPI, zero OpenRouter requests",
+  show(step),
+);
+step = s.steps[4];
+check(
+  step.filter(isLead).length > 0 && step.filter(isLead).every(onOpenRouter) && step.some((r) => isWorker(r) && onOpenRouter(r) && r.model === "minimax/minimax-m3") && !step.some(onFree),
+  "/freellm off: the paid lead is back and workers use their own OpenRouter models",
+  show(step),
+);
+check(modeFile(kept)?.mode === "off", "/freellm off is saved", JSON.stringify(modeFile(kept)));
+rmSync(kept, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+
+// 5. Saved "all": Pi starts on FreeLLMAPI even when launched with a paid model.
+const allDir = newAgentDir({ mode: { mode: "all", model: "auto:smart" } });
+s = await session(PAID_LEAD, ["build it"], { agentDir: allDir });
+check(
+  s.notes.some((n) => n.startsWith("Free-only mode (/freellm all): using freellmapi/auto:smart")) && s.steps[0].length > 0 && !s.steps[0].some(onOpenRouter),
+  "saved /freellm all: the session starts on FreeLLMAPI and nothing reaches OpenRouter",
+  `${s.notes.join(" | ")}\n${show(s.steps[0])}`,
+);
+rmSync(allDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+
+// 7. Plain /freellm: pick the setting and the model from lists.
+const picked = newAgentDir();
+s = await session(PAID_LEAD, ["/freellm", "build it"], { agentDir: picked, picks: [/^workers:/, /^auto:fast$/] });
+check(
+  modeFile(picked)?.mode === "workers" && modeFile(picked)?.model === "auto:fast" && s.steps[1].some((r) => isWorker(r) && onFree(r) && r.model === "auto:fast"),
+  "/freellm with no argument: picking 'workers' and auto:fast saves both and the worker runs on auto:fast",
+  `${JSON.stringify(modeFile(picked))}\n${show(s.steps[1])}`,
+);
+rmSync(picked, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+
+// 6. Not connected: /freellm refuses, and a saved "workers" setting blocks delegation instead of paying OpenRouter.
+const offline = newAgentDir({ connected: false, mode: { mode: "workers", model: "auto:smart" } });
+s = await session(PAID_LEAD, ["/freellm all", "build it"], { agentDir: offline });
+check(s.notes.some((n) => /FreeLLMAPI isn't connected yet\. Run \/login-with-freellm/.test(n)) && modeFile(offline)?.mode === "workers", "not connected: /freellm all is refused and nothing changes", s.notes.join(" | "));
+check(
+  !s.steps[1].some(isWorker) && s.notes.some((n) => /not available because FreeLLMAPI isn't connected/.test(n)) && s.steps[1].some((r) => isLead(r) && r.hasToolResult),
+  "not connected: the worker call is blocked (no worker request anywhere) and the lead is told why",
+  `${s.notes.join(" | ")}\n${show(s.steps[1])}`,
+);
+rmSync(offline, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 
 server.close();
 const failed = results.filter((r) => !r).length;

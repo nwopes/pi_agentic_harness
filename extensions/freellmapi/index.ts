@@ -3,11 +3,13 @@
 //   /login-with-freellm                  guided: find the server, get a key, pick a model
 //   /login-with-freellm <url> [key]      non-interactive (key falls back to $FREELLMAPI_API_KEY)
 //   /login-with-freellm status | logout
+//   /freellm [off|workers|all] [model]   how much work goes to FreeLLMAPI (no argument: pick from a list)
 //
 // The connection is saved to <agentDir>/freellmapi.json (honours PI_CODING_AGENT_DIR) and re-registered on
 // every start, so subagent workers that share the agent dir can use `freellmapi/<model>` too.
-// While the session's model is a FreeLLMAPI model, subagent workers run on that model as well, so nothing goes to
-// OpenRouter (Foreman's workers are otherwise pinned to openrouter/… models).
+// Workers (subagent calls) run on FreeLLMAPI when the lead itself is on a FreeLLMAPI model, or when /freellm is
+// "workers" or "all"; otherwise they keep their own models (Foreman's are openrouter/…). "all" also puts the lead on
+// FreeLLMAPI at every start. The setting is saved to <agentDir>/freellmapi-mode.json.
 // FreeLLMAPI API facts (routes, key formats, ports) are from its source; see NOTES.md.
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -38,6 +40,27 @@ interface SavedConfig {
 }
 
 const configPath = () => join(getAgentDir(), "freellmapi.json");
+
+/** off: nothing extra on FreeLLMAPI; workers: workers run there, your lead stays; all: lead and workers run there. */
+type Mode = "off" | "workers" | "all";
+const MODES: readonly Mode[] = ["off", "workers", "all"];
+interface ModeSetting {
+  mode: Mode;
+  model: string; // FreeLLMAPI model id used by "workers" and "all"
+}
+const modePath = () => join(getAgentDir(), "freellmapi-mode.json");
+
+function loadMode(): ModeSetting {
+  try {
+    const s = JSON.parse(readFileSync(modePath(), "utf-8")) as Partial<ModeSetting>;
+    if (MODES.includes(s.mode as Mode) && typeof s.model === "string" && s.model) return { mode: s.mode as Mode, model: s.model };
+  } catch {
+    // no setting saved yet
+  }
+  return { mode: "off", model: PREFERRED_MODEL };
+}
+
+const isWorkerProcess = () => Number(process.env.PI_SUBAGENT_DEPTH ?? 0) > 0;
 
 function loadConfig(): SavedConfig | undefined {
   try {
@@ -179,7 +202,7 @@ function register(pi: ExtensionAPI, cfg: SavedConfig) {
 }
 
 /** Notifications are no-ops without a UI (print/JSON mode), so fall back to stderr there. */
-function report(ctx: ExtensionCommandContext, message: string, level: "info" | "warning" | "error" = "info") {
+function report(ctx: ExtensionContext, message: string, level: "info" | "warning" | "error" = "info") {
   if (ctx.hasUI) ctx.ui.notify(message, level);
   else process.stderr.write(`[freellmapi] ${level}: ${message}\n`);
 }
@@ -229,13 +252,18 @@ async function obtainKey(ctx: ExtensionCommandContext, root: string): Promise<st
   return undefined;
 }
 
-async function chooseModel(ctx: ExtensionCommandContext, models: SavedModel[]): Promise<string> {
-  const ids = providerModels(models).map((m) => m.id);
+async function chooseModel(
+  ctx: ExtensionCommandContext,
+  ids: string[],
+  title = "Switch to which FreeLLMAPI model? (auto:smart is a good default for coding)",
+): Promise<string | undefined> {
   const ordered = [...new Set([PREFERRED_MODEL, "auto", "auto:fast", ...ids.filter((id) => id.startsWith("auto")), ...ids])].filter((id) => ids.includes(id));
   if (!ctx.hasUI) return ordered[0];
-  const picked = await ctx.ui.select("Switch to which FreeLLMAPI model? (auto:smart is a good default for coding)", ordered);
-  return picked ?? ordered[0];
+  return ctx.ui.select(title, ordered);
 }
+
+/** FreeLLMAPI model ids Pi can use right now (empty when FreeLLMAPI isn't connected). */
+const freeModelIds = (ctx: ExtensionContext) => ctx.modelRegistry.getAll().filter((m) => m.provider === PROVIDER).map((m) => m.id);
 
 export default function freellmapi(pi: ExtensionAPI) {
   const saved = loadConfig();
@@ -250,29 +278,124 @@ export default function freellmapi(pi: ExtensionAPI) {
     });
   }
 
-  // Keep workers on FreeLLMAPI too. A subagent call's `model` overrides the agent file's model (@mjakl/pi-subagent),
-  // and Pi lets a tool_call handler change a call's input before the tool runs.
-  const workerModel = (ctx: ExtensionContext) => (ctx.model?.provider === PROVIDER ? `${PROVIDER}/${ctx.model.id}` : undefined);
-  let toldAboutWorkers = false;
+  /**
+   * Which FreeLLMAPI model the workers should run on, or undefined to leave them on their own models. A lead on
+   * FreeLLMAPI always takes its workers with it, so a free session never spends OpenRouter credit.
+   */
+  const workerTarget = (lead: string | undefined): { model: string; why: string } | undefined => {
+    if (lead?.startsWith(`${PROVIDER}/`)) return { model: lead, why: "FreeLLMAPI: workers follow a free lead" };
+    const s = loadMode();
+    return s.mode === "off" ? undefined : { model: `${PROVIDER}/${s.model}`, why: `FreeLLMAPI, /freellm ${s.mode}` };
+  };
+  const leadOf = (ctx: ExtensionContext) => (ctx.model && ctx.model.provider !== "unknown" ? `${ctx.model.provider}/${ctx.model.id}` : undefined);
+
+  // A subagent call's `model` overrides the agent file's model (@mjakl/pi-subagent), and Pi lets a tool_call handler
+  // change a call's input before the tool runs.
+  let told = "";
   pi.on("tool_call", (event, ctx) => {
-    const target = workerModel(ctx);
     const calls = (event.input as { calls?: unknown } | undefined)?.calls;
-    if (event.toolName !== "subagent" || !target || !Array.isArray(calls)) return;
+    if (event.toolName !== "subagent" || !Array.isArray(calls)) return;
+    const target = workerTarget(leadOf(ctx));
+    if (!target) return;
+    if (!ctx.modelRegistry.find(PROVIDER, target.model.slice(PROVIDER.length + 1))) {
+      // Never fall back to the workers' paid models when the user asked for free ones.
+      const reason = `${target.why}, but ${target.model} is not available because FreeLLMAPI isn't connected. Run /login-with-freellm, or /freellm off to let workers use their own models.`;
+      report(ctx, reason, "error");
+      return { block: true, reason };
+    }
     for (const call of calls) {
       if (call && typeof call === "object" && !String((call as { model?: unknown }).model ?? "").startsWith(`${PROVIDER}/`)) {
-        (call as { model?: string }).model = target;
+        (call as { model?: string }).model = target.model;
       }
     }
-    if (!toldAboutWorkers && ctx.hasUI) ctx.ui.notify(`Workers run on ${target} too, so nothing goes to OpenRouter.`, "info");
-    toldAboutWorkers = true;
+    if (told !== target.model && ctx.hasUI) {
+      const lead = leadOf(ctx);
+      ctx.ui.notify(`Workers run on ${target.model}${lead?.startsWith(`${PROVIDER}/`) ? ", so nothing goes to OpenRouter." : `; the lead stays on ${lead}.`}`, "info");
+    }
+    told = target.model;
   });
   // Foreman's /team asks which model the workers really use (foreman/orchestrate.ts, WORKER_MODELS_EVENT).
   pi.events.on("foreman:worker-models", (data) => {
     const query = data as { lead?: string; redirect?: { model?: string; by?: string } };
-    if (query?.redirect && query.lead?.startsWith(`${PROVIDER}/`)) {
-      query.redirect.model = query.lead;
-      query.redirect.by = "FreeLLMAPI keeps workers on the lead's model";
+    const target = query?.redirect ? workerTarget(query.lead) : undefined;
+    if (target) Object.assign(query.redirect!, { model: target.model, by: target.why });
+  });
+
+  const showStatus = (ctx: ExtensionContext) => {
+    const s = loadMode();
+    if (ctx.hasUI) ctx.ui.setStatus(PROVIDER, s.mode === "off" ? undefined : `FreeLLMAPI: ${s.mode === "all" ? "everything" : "workers"} (${s.model})`);
+  };
+  const describeMode = (s: ModeSetting, ctx: ExtensionContext) => {
+    const lead = leadOf(ctx) ?? "no model selected";
+    if (s.mode === "workers") return `FreeLLMAPI: workers. Your lead (${lead}) orchestrates; every worker runs free on ${PROVIDER}/${s.model}.`;
+    if (s.mode === "all") return `FreeLLMAPI: all. Lead and workers run on ${PROVIDER}/${s.model}, and Pi switches to it at every start. Nothing goes to OpenRouter.`;
+    return `FreeLLMAPI: off. Lead and workers use their own models (Foreman's workers are on OpenRouter). Picking a ${PROVIDER}/… lead still takes the workers along.`;
+  };
+  /** The lead the session had before "all" switched it to FreeLLMAPI, so "off"/"workers" can switch back. */
+  let previousLead: NonNullable<ExtensionContext["model"]> | undefined;
+
+  pi.on("session_start", async (_event, ctx) => {
+    if (isWorkerProcess()) return; // workers get their model from the lead's subagent call
+    showStatus(ctx);
+    const s = loadMode();
+    if (s.mode !== "all" || ctx.model?.provider === PROVIDER) return;
+    const free = ctx.modelRegistry.find(PROVIDER, s.model);
+    if (!free) {
+      report(ctx, `/freellm is set to "all", but FreeLLMAPI isn't connected, so this session starts on ${leadOf(ctx) ?? "no model"}. Run /login-with-freellm, or /freellm off.`, "warning");
+      return;
     }
+    previousLead = ctx.model;
+    if (await pi.setModel(free)) report(ctx, `Free-only mode (/freellm all): using ${PROVIDER}/${s.model}.`);
+  });
+
+  pi.registerCommand("freellm", {
+    description: "How much work goes to FreeLLMAPI: off, workers (your lead orchestrates, workers run free) or all (free only)",
+    getArgumentCompletions: (prefix) => [...MODES, "status"].filter((s) => s.startsWith(prefix)).map((s) => ({ value: s, label: s })),
+    handler: async (args, ctx) => {
+      const [arg, modelArg] = args.trim().split(/\s+/).filter(Boolean);
+      const current = loadMode();
+      if (arg === "status" || (!arg && !ctx.hasUI)) return report(ctx, describeMode(current, ctx));
+
+      let mode = arg as Mode | undefined;
+      if (!mode) {
+        const labels: Record<Mode, string> = {
+          off: "off: lead and workers use their own models (paid OpenRouter workers)",
+          workers: "workers: your lead orchestrates, workers run free on FreeLLMAPI",
+          all: "all: everything on FreeLLMAPI (free only)",
+        };
+        const picked = await ctx.ui.select(`How much should FreeLLMAPI do? (now: ${current.mode})`, MODES.map((m) => labels[m]));
+        if (!picked) return;
+        mode = MODES.find((m) => labels[m] === picked);
+      }
+      if (!mode || !MODES.includes(mode)) return report(ctx, "Usage: /freellm [off|workers|all] [model] | status", "warning");
+
+      const next: ModeSetting = { mode, model: current.model };
+      if (mode !== "off") {
+        const ids = freeModelIds(ctx);
+        if (!ids.length) return report(ctx, "FreeLLMAPI isn't connected yet. Run /login-with-freellm first, then /freellm again.", "warning");
+        const model = modelArg ?? (!arg ? await chooseModel(ctx, ids, `Which FreeLLMAPI model for ${mode === "all" ? "everything" : "the workers"}?`) : current.model);
+        if (!model) return;
+        if (!ids.includes(model)) return report(ctx, `${PROVIDER}/${model} isn't a FreeLLMAPI model Pi knows. Available: ${ids.join(", ")}`, "warning");
+        next.model = model;
+      }
+      writeFileSync(modePath(), JSON.stringify(next, null, 2) + "\n");
+
+      // Move the lead: onto FreeLLMAPI for "all", back to the lead it replaced otherwise.
+      const onFree = ctx.model?.provider === PROVIDER;
+      if (mode === "all") {
+        const free = ctx.modelRegistry.find(PROVIDER, next.model);
+        if (free && !(onFree && ctx.model?.id === next.model)) {
+          if (!onFree) previousLead = ctx.model;
+          await pi.setModel(free);
+        }
+      } else if (onFree && previousLead) {
+        await pi.setModel(previousLead);
+        previousLead = undefined;
+      }
+      showStatus(ctx);
+      const stillFree = mode !== "all" && ctx.model?.provider === PROVIDER;
+      report(ctx, describeMode(next, ctx) + (stillFree ? ` Your lead is still ${leadOf(ctx)}; pick a different one with /model.` : ""));
+    },
   });
 
   pi.registerCommand("login-with-freellm", {
@@ -284,13 +407,18 @@ export default function freellmapi(pi: ExtensionAPI) {
       const current = loadConfig();
 
       if (first === "status") {
-        report(ctx, current ? `Connected to ${current.baseUrl} with key ${maskKey(current.apiKey)}; ${current.models.length} models (saved ${current.savedAt}).` : "Not connected. Run /login-with-freellm.");
+        report(
+          ctx,
+          (current ? `Connected to ${current.baseUrl} with key ${maskKey(current.apiKey)}; ${current.models.length} models (saved ${current.savedAt}).` : "Not connected. Run /login-with-freellm.") +
+            `\n${describeMode(loadMode(), ctx)}`,
+        );
         return;
       }
       if (first === "logout") {
-        if (existsSync(configPath())) rmSync(configPath());
+        for (const file of [configPath(), modePath()]) if (existsSync(file)) rmSync(file);
         pi.unregisterProvider(PROVIDER);
-        report(ctx, "Removed the saved FreeLLMAPI connection. A key made for Pi stays valid until you delete its client profile in the FreeLLMAPI dashboard.");
+        showStatus(ctx);
+        report(ctx, "Removed the saved FreeLLMAPI connection and set /freellm back to off. A key made for Pi stays valid until you delete its client profile in the FreeLLMAPI dashboard.");
         return;
       }
 
@@ -313,12 +441,12 @@ export default function freellmapi(pi: ExtensionAPI) {
           report(ctx, "A FreeLLMAPI key saved earlier with /login takes precedence over this one. Run /logout and pick FreeLLMAPI to remove it.", "warning");
         }
 
-        const id = await chooseModel(ctx, models);
+        const id = (await chooseModel(ctx, providerModels(models).map((m) => m.id))) ?? PREFERRED_MODEL;
         const model = ctx.modelRegistry.find(PROVIDER, id);
         const switched = model ? await pi.setModel(model) : false;
         report(
           ctx,
-          `Connected to ${root} (${models.length} models, key ${maskKey(apiKey)}). ${switched ? `Now using ${PROVIDER}/${id}.` : `Use /model to pick a ${PROVIDER}/… model.`}`,
+          `Connected to ${root} (${models.length} models, key ${maskKey(apiKey)}). ${switched ? `Now using ${PROVIDER}/${id}.` : `Use /model to pick a ${PROVIDER}/… model.`} To keep a paid lead and run only the workers here, use /freellm workers.`,
           switched ? "info" : "warning",
         );
       } catch (err) {
