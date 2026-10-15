@@ -1,0 +1,4 @@
+# Keep LF everywhere: shell scripts (grade.sh) break under bash with CRLF.
+* text=auto eol=lf
+*.png binary
+*.jpg binary

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://pi.dev/schemas/models.schema.json",
+  "providers": {
+    "openrouter": {
+      "modelOverrides": {
+        "anthropic/claude-opus-5.5": { "maxTokens": 16384 },
+        "anthropic/claude-haiku-5.5": { "maxTokens": 16384 },
+        "moonshotai/kimi-k2.7-code": { "maxTokens": 16384 },
+        "minimax/minimax-m3": { "maxTokens": 16384 }
+      }
+    }
+  }
+}

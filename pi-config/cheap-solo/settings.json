@@ -1,0 +1,5 @@
+{
+  "defaultProvider": "openrouter",
+  "defaultModel": "moonshotai/kimi-k2.7-code",
+  "enableInstallTelemetry": false
+}

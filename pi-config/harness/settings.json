@@ -1,0 +1,8 @@
+{
+  "defaultProvider": "openrouter",
+  "defaultModel": "anthropic/claude-opus-5.5",
+  "enableInstallTelemetry": false,
+  "packages": [
+    "npm:@mjakl/pi-subagent@3.1.0"
+  ]
+}

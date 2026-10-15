@@ -1,0 +1,166 @@
+{
+  "$comment": "Single source of truth for pinned lead/solo model ids and the Pi invocation. Worker models are read from pi-config/harness/agents/*.md frontmatter, not from here. Paths in extraPiArgs may use {piConfigDir} and {repo}.",
+  "provider": "openrouter",
+  "pi": {
+    "$comment": "Pi 1.2.0 (@earendil-works/pi-coding-agent) needs Node >= 22.19, so it runs on the fnm-installed Node, not the system Node 22.12 (NOTES.md). Override with --pi-node/--pi-bin or FOREMAN_PI_NODE/FOREMAN_PI_BIN.",
+    "node": "C:/Users/Akshat/AppData/Roaming/fnm/node-versions/v22.23.3/installation/node.exe",
+    "cli": "C:/Users/Akshat/AppData/Roaming/fnm/node-versions/v22.23.3/installation/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+    "env": {
+      "PI_OFFLINE": "1",
+      "PI_TELEMETRY": "0"
+    }
+  },
+  "timeoutMinutes": 30,
+  "gradeTimeoutMinutes": 15,
+  "baselineMode": "strong-solo",
+  "harnessMode": "harness",
+  "costDisagreementThreshold": 0.15,
+  "minHeadroomUsd": 5,
+  "keyUsagePolling": {
+    "initialDelayMs": 10000,
+    "intervalMs": 5000,
+    "stableReads": 3,
+    "maxWaitMs": 180000
+  },
+  "defaultModes": [
+    "harness",
+    "strong-solo",
+    "cheap-solo"
+  ],
+  "servedModelCheck": {
+    "$comment": "After each run, look up this many responses per role on OpenRouter GET /api/v1/generation (gen- ids only; Anthropic msg_ ids are unverifiable via API). No spend.",
+    "maxPerRole": 3
+  },
+  "modes": {
+    "harness": {
+      "piConfigDir": "pi-config/harness",
+      "model": "anthropic/claude-opus-5.5",
+      "leadRole": "lead",
+      "workerAgentsDir": "pi-config/harness/agents",
+      "extraPiArgs": [
+        "--append-system-prompt",
+        "{piConfigDir}/LEAD.md",
+        "--subagent-max-depth",
+        "1",
+        "--no-skills",
+        "--no-approve"
+      ],
+      "requiredFiles": [
+        "LEAD.md",
+        "npm/node_modules/@mjakl/pi-subagent/package.json"
+      ],
+      "requiredHelpFlags": [
+        "--subagent-max-depth"
+      ]
+    },
+    "strong-solo": {
+      "piConfigDir": "pi-config/strong-solo",
+      "model": "anthropic/claude-opus-5.5",
+      "leadRole": "solo",
+      "extraPiArgs": [
+        "--no-skills",
+        "--no-approve"
+      ]
+    },
+    "cheap-solo": {
+      "piConfigDir": "pi-config/cheap-solo",
+      "model": "moonshotai/kimi-k2.7-code",
+      "leadRole": "solo",
+      "extraPiArgs": [
+        "--no-skills",
+        "--no-approve"
+      ]
+    },
+    "harness-lite": {
+      "$comment": "Cheap rehearsal profile (NOTES.md): Haiku lead, maxTokens capped at 16384 in its models.json, same workers and the harness LEAD.md. Not for measurement runs.",
+      "piConfigDir": "pi-config/harness-lite",
+      "model": "anthropic/claude-haiku-5.5",
+      "leadRole": "lead",
+      "workerAgentsDir": "pi-config/harness-lite/agents",
+      "extraPiArgs": [
+        "--append-system-prompt",
+        "{repo}/pi-config/harness/LEAD.md",
+        "--subagent-max-depth",
+        "1",
+        "--no-skills",
+        "--no-approve"
+      ],
+      "requiredFiles": [
+        "models.json",
+        "npm/node_modules/@mjakl/pi-subagent/package.json"
+      ],
+      "requiredHelpFlags": [
+        "--subagent-max-depth"
+      ]
+    }
+  },
+  "screenshots": {
+    "$comment": "Used only by `npm run screenshots` (optional, needs Playwright). Starts each run's saved workspace copy with `start`, waits for `url`, sends the optional `seed` API requests ({idN} = id of the N-th created object, {today}/{today-N} = UTC dates), then captures the page.",
+    "default": {
+      "install": "npm ci",
+      "build": "",
+      "start": "npm run dev",
+      "url": "http://localhost:5173/",
+      "readyTimeoutMs": 120000,
+      "settleMs": 2500,
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "seed": []
+    },
+    "habit-tracker": {
+      "seed": [
+        {
+          "method": "POST",
+          "path": "/api/habits",
+          "body": {
+            "name": "Drink water"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/habits",
+          "body": {
+            "name": "Read 20 pages"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/habits",
+          "body": {
+            "name": "Walk 30 minutes"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/habits/{id0}/checkins",
+          "body": {
+            "date": "{today-2}"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/habits/{id0}/checkins",
+          "body": {
+            "date": "{today-1}"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/habits/{id0}/checkins",
+          "body": {
+            "date": "{today}"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/api/habits/{id1}/checkins",
+          "body": {
+            "date": "{today}"
+          }
+        }
+      ]
+    }
+  }
+}
